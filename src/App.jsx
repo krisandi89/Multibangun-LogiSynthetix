@@ -287,6 +287,7 @@ export function App() {
             destination={destination}
             routeResult={routeResult}
             packingResult={packingResult}
+            estimationResult={estimationResult}
           />
 
           {/* Module 4: Truck Fleet Selector */}

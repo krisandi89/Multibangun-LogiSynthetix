@@ -20,30 +20,27 @@ export function CostEstimationCard({
   const cost = estimationResult.cost_estimation || {};
   const load = estimationResult.load_analysis || {};
   const totalTrucks = load.total_trucks_required || packingResult.totalTrucksCount || 1;
-  const fleetType = load.fleet_type || packingResult.targetFleet?.truck_category || 'Truk';
+  const fleetType = load.fleet_type || packingResult.targetFleet?.truck_category || 'Fuso Standar';
 
-  // Copy Shipping summary to WhatsApp
+  // Copy Shipping summary to WhatsApp in the exact user-specified format
   const handleCopyPricingWa = () => {
-    let text = `*🚛 ESTIMASI TARIF LOGISTIK TRUCKING*\n`;
-    text += `*PT MULTIBANGUN REKATAMA PATRIA*\n`;
-    text += `━━━━━━━━━━━━━━━━━━━━━\n`;
-    text += `📍 *Asal:* Gudang Bitung, Tangerang\n`;
-    text += `🎯 *Tujuan:* ${destination || routeResult?.destination?.address || '-'}\n`;
-    text += `🛣️ *Jarak:* ${routeResult?.distanceKm || 0} km (Est. ${routeResult?.durationText || '-'})\n`;
+    const destLabel = destination || routeResult?.destination?.address || 'Semarang, Jawa Tengah';
+    const distKm = routeResult?.distanceKm || 0;
+    const durationText = routeResult?.durationText || '-';
+    const totalRolls = packingResult.summary.totalRolls;
+    const totalWeightKg = packingResult.summary.totalWeightKg;
+
+    let text = `📍 *Asal:* Gudang Bitung, Tangerang\n`;
+    text += `🎯 *Tujuan:* ${destLabel}\n`;
+    text += `🛣️ *Jarak:* ${distKm} km (Est. ${durationText})\n`;
     text += `🚛 *Kebutuhan Armada:* ${totalTrucks} Unit ${fleetType}\n`;
-    text += `📦 *Muatan:* ${packingResult.summary.totalRolls} Roll (${formatNumber(packingResult.summary.totalWeightKg)} kg)\n`;
+    text += `📦 *Muatan:* ${totalRolls} Roll (${formatNumber(totalWeightKg)} kg)\n`;
     text += `━━━━━━━━━━━━━━━━━━━━━\n`;
     text += `💰 *RINCIAN BIAYA PENGIRIMAN:*\n`;
-    text += `• Sewa Unit Armada: ${formatRupiah(cost.truck_rental_base)}\n`;
-    text += `• Estimasi Bahan Bakar (BBM): ${formatRupiah(cost.estimated_fuel_cost)}\n`;
-    text += `• Estimasi Tarif Tol: ${formatRupiah(cost.estimated_toll_cost)}\n`;
-    text += `-------------------------------------\n`;
     text += `*TOTAL ESTIMASI ONGKIR:* *${formatRupiah(cost.total_estimated_cost)}*\n`;
-    text += `(Rata-rata: ${formatRupiah(cost.cost_per_roll || Math.round(cost.total_estimated_cost / (packingResult.summary.totalRolls || 1)))} / Roll)\n`;
-    text += `━━━━━━━━━━━━━━━━━━━━━\n`;
 
     navigator.clipboard.writeText(text);
-    setCopyStatus("Ringkasan biaya ongkir berhasil disalin untuk WhatsApp!");
+    setCopyStatus("Format penawaran WhatsApp berhasil disalin!");
     setTimeout(() => setCopyStatus(null), 3000);
   };
 
@@ -203,7 +200,7 @@ export function CostEstimationCard({
           onClick={handleCopyPricingWa}
         >
           <Copy size={16} />
-          <span>Salin Info Tarif (WA)</span>
+          <span>Salin Format WA</span>
         </button>
 
         <button
