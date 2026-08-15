@@ -1,0 +1,34 @@
+Act as an expert Full-Stack Web Developer. Build a comprehensive Logistics and Load Estimation Web Application for geosynthetic materials. The application must feature a modern, responsive UI and integrate deeply with the Gemini Flash API (via Google AI Studio) for OCR, calculation, and dynamic price estimation.
+
+Here is the exact specification of the application:
+
+1. DATABASE & DATA STRUCTURE
+- Implement a predefined database (JSON) for "Materials" (e.g., Geomembrane, Geotextile, Geogrid). It must include: SKU, Category, Roll Length (m), Roll Diameter (m), Weight (kg), and Logistics Rules (stackability and max stack tier).
+- Implement a predefined database (JSON) for "Trucks" containing standard dimensions (Length, Width, Height) and max tonnages for: Colt Diesel Engkel, Colt Diesel Double, Fuso, Tronton, and Containers (20ft & 40ft).
+- Create a "Projects/Quotations" database table to save generated logistics estimations (Fields: Company Name, Destination, Material Combinations, Truck Required, Total Cost, Date).
+
+2. INPUT MODULE (MANUAL & OCR)
+- Provide a dual-input method for the user to start an estimation:
+  a. Manual Entry: Input 'Nama PT' (Company Name).
+  b. Document Upload: File uploader accepting PDF and Images (quotation documents).
+- If a document is uploaded, send it to the Gemini Flash Vision API to automatically extract the Company Name, requested materials, and quantities, then auto-fill the UI forms.
+
+3. LOGISTICS & ROUTING MODULE (WITH GOOGLE MAPS API)
+- API Integration: Implement the Google Maps Distance Matrix API. Ensure the API Key is stored securely.
+- Fixed Origin: Hardcode the origin permanently to "Gudang PT Multibangun Rekatama Patria, Bitung, Tangerang (Google Maps: https://maps.app.goo.gl/wbL16QDUiMmbe7aC6)". Make this read-only on the UI. All distance and routing calculations must exclusively start from this fixed point.
+- Destination Input: A text field for the full destination address or Google Maps link parser to capture the exact coordinates.
+- Distance Calculation: The moment a destination is entered, trigger the Distance Matrix API to calculate the exact driving distance (in kilometers) and estimated travel time from the Fixed Origin to the Destination. Display this distance (km) and ETA on the user interface.
+- Material Selection: Dynamic dropdowns where the user can select multiple materials, specify quantities, and combine different roll lengths (e.g., mixing 7m rolls with 4m and 2m rolls).
+- Truck Selection: Dropdown to select the preferred truck type from the database.
+
+4. AI CALCULATION ENGINE (GEMINI FLASH API)
+- Payload Preparation: Create a backend function or API route that formats all the selected data into a structured prompt: Selected Materials (dimensions & weights), Selected Truck (dimensions & max capacity), Destination, and the EXACT DISTANCE (km) and ETA provided by the Google Maps API.
+- Instruct the Gemini API to perform two tasks:
+  1. Load Optimization (Bin-packing): Calculate exactly how many trucks are needed to fit the combined material rolls without exceeding spatial dimensions or weight limits.
+  2. Price Estimation: Act as a web-search-enabled agent to estimate the current market logistics cost. Do not guess the distance; use the exact distance (km) and travel duration provided by Google Maps. Base the calculation on current market standard trucking rates per km, estimated fuel, and toll costs for the selected truck type.
+
+5. OUTPUT & STORAGE
+- Display the AI response clearly on the dashboard:
+  - Total Trucks Required (with a brief visual or text breakdown of how the rolls are distributed/stacked).
+  - Estimated Total Shipping Cost.
+- Provide a "Save Estimation" button to store this record into the database so the user can view historical data later.
