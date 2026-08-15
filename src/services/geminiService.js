@@ -57,7 +57,6 @@ async function callGeminiApi(apiKey, model, contents, systemInstruction = null) 
   try {
     return JSON.parse(textOutput);
   } catch {
-    // If not clean JSON, attempt substring extraction
     const jsonMatch = textOutput.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
@@ -118,7 +117,6 @@ Format respon HARUS berupa JSON murni dengan schema:
     }
   ];
 
-  // Try models in order
   let lastError = null;
   for (const model of GEMINI_MODELS) {
     try {
@@ -134,7 +132,7 @@ Format respon HARUS berupa JSON murni dengan schema:
 }
 
 /**
- * AI Calculation Engine for Load Optimization & Indonesian Price Estimation
+ * AI Calculation Engine for Load Optimization & Indonesian Price Estimation (Without Labor)
  */
 export async function calculateLogisticsWithGemini({
   companyName,
@@ -150,7 +148,7 @@ export async function calculateLogisticsWithGemini({
   const targetFleet = selectedFleet || packingResult?.targetFleet;
   const truckCategory = targetFleet?.truck_category || "Fuso Standar";
 
-  // Deterministic calculation baseline (used as fallback or validation)
+  // Deterministic calculation baseline
   const baseRatePerTruck = targetFleet?.base_rate || 2800000;
   const ratePerKm = targetFleet?.rate_per_km || 16500;
   const fuelKmPerLiter = targetFleet?.fuel_consumption_km_l || 4.0;
@@ -159,13 +157,12 @@ export async function calculateLogisticsWithGemini({
   const estimatedFuelCost = Math.round(estimatedFuelLiters * PRICING_PARAMETERS.fuel_price_per_liter) * truckCount;
   const estimatedTollCostSingle = estimateTollCost(distanceKm, truckCategory);
   const estimatedTollCostTotal = estimatedTollCostSingle * truckCount;
-  const handlingCost = Math.round(packingResult.summary.totalRolls * PRICING_PARAMETERS.labor_handling_per_roll);
   const driverAllowance = Math.round(PRICING_PARAMETERS.driver_allowance_per_day * Math.max(1, Math.ceil(distanceKm / 400))) * truckCount;
   
   const distanceBasedRentalCost = Math.round(baseRatePerTruck + (distanceKm * ratePerKm)) * truckCount;
-  const calculatedTotalCost = distanceBasedRentalCost + estimatedTollCostTotal + handlingCost;
+  const calculatedTotalCost = distanceBasedRentalCost + estimatedTollCostTotal;
 
-  // Fallback structure if no API key
+  // Fallback structure
   const fallbackResult = {
     load_analysis: {
       total_trucks_required: truckCount,
@@ -189,11 +186,10 @@ export async function calculateLogisticsWithGemini({
       truck_rental_base: distanceBasedRentalCost,
       estimated_fuel_cost: estimatedFuelCost,
       estimated_toll_cost: estimatedTollCostTotal,
-      handling_labor_cost: handlingCost,
       driver_allowance: driverAllowance,
       total_estimated_cost: calculatedTotalCost,
       cost_per_roll: Math.round(calculatedTotalCost / (packingResult.summary.totalRolls || 1)),
-      pricing_basis_explanation: `Perhitungan menggunakan tarif pasar logistik trucking Indonesia untuk rute Gudang Bitung Tangerang ke ${destination.name || destination.address} (${distanceKm} km, durasi ${durationText}). Termasuk komponen sewa unit ${truckCategory} (${truckCount}x), bahan bakar solar industri, estimasi tol, dan penanganan material geosintetik.`
+      pricing_basis_explanation: `Perhitungan menggunakan tarif pasar logistik trucking Indonesia untuk rute Gudang Bitung Tangerang ke ${destination.name || destination.address} (${distanceKm} km, durasi ${durationText}). Termasuk komponen sewa unit ${truckCategory} (${truckCount}x), bahan bakar solar industri, dan estimasi tol rute pengiriman.`
     },
     ai_insights: `Kapasitas angkut optimal dengan utilisasi ${packingResult.trucks[0]?.weightUtilizationPercent || 80}%. Pengiriman langsung dari Hub Bitung Tangerang.`
   };
@@ -207,6 +203,7 @@ export async function calculateLogisticsWithGemini({
 Anda menghitung estimasi penataan muatan (bin-packing geosintetik) dan harga riil pasar angkutan logistik truk di Indonesia.
 Gunakan data jarak PASTI (${distanceKm} km) dan durasi perjalanan (${durationText}) dari Google Maps.
 JANGAN MENGARANG JARAK. Gunakan titik asal tetap: Gudang PT Multibangun Rekatama Patria, Bitung, Tangerang.
+CATATAN: JANGAN masukkan biaya bongkar muat dalam perhitungan.
 
 Hitung secara rinci dan realistis:
 1. Total armada yang dibutuhkan dan analisis distribusi tier roll.
@@ -214,7 +211,6 @@ Hitung secara rinci dan realistis:
    - Biaya sewa armada per km & base rate untuk tipe armada ${truckCategory}
    - Estimasi BBM Solar Industri/Dexlite
    - Estimasi tarif Tol (misal Tol Tangerang-Merak, Tol Trans-Jawa, Cipularang, dsb.)
-   - Biaya bongkar muat & driver allowance
    - Total estimasi biaya pengiriman dalam Rupiah (IDR).
 
 Format output HARUS berupa JSON murni dengan skema:
@@ -239,7 +235,6 @@ Format output HARUS berupa JSON murni dengan skema:
     "truck_rental_base": 0,
     "estimated_fuel_cost": 0,
     "estimated_toll_cost": 0,
-    "handling_labor_cost": 0,
     "driver_allowance": 0,
     "total_estimated_cost": 0,
     "cost_per_roll": 0,
@@ -269,7 +264,6 @@ ${selectedItems.map(item => `  * ${item.sku} (${item.category} ${item.specificat
   for (const model of GEMINI_MODELS) {
     try {
       const aiData = await callGeminiApi(apiKey, model, contents, systemPrompt);
-      // Ensure required numeric fields exist
       if (aiData?.cost_estimation?.total_estimated_cost > 0) {
         return aiData;
       }

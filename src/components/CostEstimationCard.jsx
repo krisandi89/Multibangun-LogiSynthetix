@@ -1,5 +1,5 @@
-import React from 'react';
-import { DollarSign, Truck, Sparkles, CheckCircle2, BookmarkCheck, Printer, ArrowRight, ShieldCheck, Fuel, Receipt } from 'lucide-react';
+import React, { useState } from 'react';
+import { DollarSign, Truck, Sparkles, CheckCircle2, BookmarkCheck, Copy, Check, Fuel, Receipt } from 'lucide-react';
 import { formatRupiah, formatNumber } from '../data/pricingRules';
 
 export function CostEstimationCard({
@@ -9,11 +9,12 @@ export function CostEstimationCard({
   routeResult,
   packingResult,
   onSaveEstimation,
-  onPrintQuotation,
   onRecalculate,
   isCalculating = false,
   isSaved = false
 }) {
+  const [copyStatus, setCopyStatus] = useState(null);
+
   if (!estimationResult || !packingResult) return null;
 
   const cost = estimationResult.cost_estimation || {};
@@ -21,13 +22,38 @@ export function CostEstimationCard({
   const totalTrucks = load.total_trucks_required || packingResult.totalTrucksCount || 1;
   const fleetType = load.fleet_type || packingResult.targetFleet?.truck_category || 'Truk';
 
+  // Copy Shipping summary to WhatsApp
+  const handleCopyPricingWa = () => {
+    let text = `*🚛 ESTIMASI TARIF LOGISTIK TRUCKING*\n`;
+    text += `*PT MULTIBANGUN REKATAMA PATRIA*\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    text += `📍 *Asal:* Gudang Bitung, Tangerang\n`;
+    text += `🎯 *Tujuan:* ${destination || routeResult?.destination?.address || '-'}\n`;
+    text += `🛣️ *Jarak:* ${routeResult?.distanceKm || 0} km (Est. ${routeResult?.durationText || '-'})\n`;
+    text += `🚛 *Kebutuhan Armada:* ${totalTrucks} Unit ${fleetType}\n`;
+    text += `📦 *Muatan:* ${packingResult.summary.totalRolls} Roll (${formatNumber(packingResult.summary.totalWeightKg)} kg)\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    text += `💰 *RINCIAN BIAYA PENGIRIMAN:*\n`;
+    text += `• Sewa Unit Armada: ${formatRupiah(cost.truck_rental_base)}\n`;
+    text += `• Estimasi Bahan Bakar (BBM): ${formatRupiah(cost.estimated_fuel_cost)}\n`;
+    text += `• Estimasi Tarif Tol: ${formatRupiah(cost.estimated_toll_cost)}\n`;
+    text += `-------------------------------------\n`;
+    text += `*TOTAL ESTIMASI ONGKIR:* *${formatRupiah(cost.total_estimated_cost)}*\n`;
+    text += `(Rata-rata: ${formatRupiah(cost.cost_per_roll || Math.round(cost.total_estimated_cost / (packingResult.summary.totalRolls || 1)))} / Roll)\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+
+    navigator.clipboard.writeText(text);
+    setCopyStatus("Ringkasan biaya ongkir berhasil disalin untuk WhatsApp!");
+    setTimeout(() => setCopyStatus(null), 3000);
+  };
+
   return (
     <div className="panel" style={{ border: '1px solid rgba(6, 182, 212, 0.4)', background: 'linear-gradient(180deg, rgba(17,24,39,0.95) 0%, rgba(10,14,23,0.98) 100%)' }}>
       <div className="panel-header">
         <div>
           <div className="panel-title">
             <DollarSign size={20} color="var(--accent-emerald)" />
-            <span>6. Hasil Estimasi Logistik & Rincian Biaya (Gemini AI Pricing)</span>
+            <span>6. Hasil Estimasi Logistik & Ongkos Kirim (Gemini AI Pricing)</span>
           </div>
           <div className="panel-subtitle">
             Kalkulasi berbasis jarak riil Google Maps, armada {fleetType}, dan standar tarif angkutan Indonesia
@@ -36,7 +62,7 @@ export function CostEstimationCard({
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span className="badge badge-emerald">
-            <CheckCircle2 size={12} /> Siap Diajukan
+            <CheckCircle2 size={12} /> Terhitung
           </span>
         </div>
       </div>
@@ -55,7 +81,7 @@ export function CostEstimationCard({
       }}>
         <div>
           <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--accent-cyan)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            TOTAL ESTIMASI BIAYA PENGIRIMAN
+            TOTAL ESTIMASI ONGKOS KIRIM
           </div>
           <div className="font-mono" style={{ fontSize: '2.1rem', fontWeight: '800', color: '#ffffff', textShadow: '0 0 20px rgba(6, 182, 212, 0.4)' }}>
             {formatRupiah(cost.total_estimated_cost)}
@@ -75,10 +101,28 @@ export function CostEstimationCard({
         </div>
       </div>
 
-      {/* Transparent Itemized Cost Breakdown Grid */}
+      {/* Copy notification toast */}
+      {copyStatus && (
+        <div style={{
+          background: 'rgba(16, 185, 129, 0.12)',
+          border: '1px solid rgba(16, 185, 129, 0.3)',
+          borderRadius: 'var(--radius-md)',
+          padding: '0.65rem 1rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          fontSize: '0.8rem',
+          color: '#a7f3d0'
+        }}>
+          <Check size={16} color="var(--accent-emerald)" />
+          <span>{copyStatus}</span>
+        </div>
+      )}
+
+      {/* Transparent Itemized Cost Breakdown Grid (Without Labor) */}
       <div>
         <div style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '0.6rem', textTransform: 'uppercase' }}>
-          Rincian Transparan Komponen Biaya (IDR):
+          Rincian Komponen Biaya Trucking (IDR):
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
@@ -120,19 +164,6 @@ export function CostEstimationCard({
               Tol Trans-Jawa / Jabodetabek
             </div>
           </div>
-
-          {/* Bongkar Muat & Driver */}
-          <div style={{ background: 'var(--bg-surface-elevated)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <DollarSign size={13} color="var(--accent-cyan)" /> BONGKAR MUAT & DRIVER
-            </div>
-            <div className="font-mono" style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text-primary)', marginTop: '2px' }}>
-              {formatRupiah((cost.handling_labor_cost || 0) + (cost.driver_allowance || 0))}
-            </div>
-            <div style={{ fontSize: '0.675rem', color: 'var(--text-secondary)' }}>
-              Handling {packingResult.summary.totalRolls} roll + Uang Jalan
-            </div>
-          </div>
         </div>
       </div>
 
@@ -147,13 +178,13 @@ export function CostEstimationCard({
           color: 'var(--text-secondary)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: '700', color: 'var(--accent-cyan)', marginBottom: '0.25rem' }}>
-            <Sparkles size={14} /> Dasar Analisis Harga AI Gemini:
+            <Sparkles size={14} /> Dasar Analisis Tarif AI:
           </div>
           <div>{cost.pricing_basis_explanation}</div>
         </div>
       )}
 
-      {/* Action Buttons */}
+      {/* Action Buttons: Recalculate, Copy WA, Save Estimation */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.75rem', flexWrap: 'wrap', paddingTop: '0.5rem', borderTop: '1px solid var(--border-subtle)' }}>
         <button
           type="button"
@@ -162,16 +193,17 @@ export function CostEstimationCard({
           disabled={isCalculating}
         >
           <Sparkles size={16} color="var(--accent-cyan)" />
-          <span>{isCalculating ? 'Menghitung Ulang...' : 'Hitung Ulang AI'}</span>
+          <span>{isCalculating ? 'Menghitung Ulang...' : 'Hitung Ulang Tarif'}</span>
         </button>
 
         <button
           type="button"
           className="btn btn-secondary"
-          onClick={onPrintQuotation}
+          style={{ color: 'var(--accent-emerald)', borderColor: 'rgba(16, 185, 129, 0.3)' }}
+          onClick={handleCopyPricingWa}
         >
-          <Printer size={16} color="var(--accent-amber)" />
-          <span>Cetak / PDF Quotation Slip</span>
+          <Copy size={16} />
+          <span>Salin Info Tarif (WA)</span>
         </button>
 
         <button

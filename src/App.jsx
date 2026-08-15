@@ -6,7 +6,6 @@ import { CargoBuilder } from './components/CargoBuilder';
 import { TruckSelector } from './components/TruckSelector';
 import { LoadVisualizer } from './components/LoadVisualizer';
 import { CostEstimationCard } from './components/CostEstimationCard';
-import { QuotationModal } from './components/QuotationModal';
 import { HistoryDrawer } from './components/HistoryDrawer';
 import { DatabaseStudio } from './components/DatabaseStudio';
 import { SettingsModal } from './components/SettingsModal';
@@ -24,7 +23,7 @@ import {
 import { optimizeCargoLoading } from './services/packingOptimizer';
 import { calculateLogisticsWithGemini } from './services/geminiService';
 import { FIXED_ORIGIN } from './data/defaultDatabase';
-import { Sparkles, Calculator, Layers, AlertCircle, RefreshCw } from 'lucide-react';
+import { Sparkles, Calculator, Layers, AlertCircle } from 'lucide-react';
 
 export function App() {
   // 1. Master Database & Settings State
@@ -36,8 +35,6 @@ export function App() {
   const [isDatabaseOpen, setIsDatabaseOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isQuotationOpen, setIsQuotationOpen] = useState(false);
-  const [quotationModalData, setQuotationModalData] = useState(null);
 
   // 3. Form Input State
   const [companyName, setCompanyName] = useState('PT Waskita Karya (Persero) Tbk');
@@ -62,7 +59,7 @@ export function App() {
     ]
   });
 
-  // 4. Cargo Selection State (Default sample matching Geosynthetics database)
+  // 4. Cargo Selection State
   const [selectedItems, setSelectedItems] = useState([
     {
       sku: "GM-HDPE-10-7M",
@@ -80,7 +77,7 @@ export function App() {
       shipping_dimensions: { cylinder_length_m: 4.0, cylinder_diameter_m: 0.55 },
       weight_kg: 100,
       logistics_rules: { stackable: true, max_stack_tier: 5 },
-      quantity: 12
+      quantity: 8
     },
     {
       sku: "GM-LDPE-05-2M",
@@ -162,7 +159,6 @@ export function App() {
     if (ocrData.extracted_items && ocrData.extracted_items.length > 0) {
       const newItems = [];
       ocrData.extracted_items.forEach(extracted => {
-        // Match with database SKU
         const matched = database.geosynthetics.find(m => 
           m.sku.toLowerCase() === (extracted.matched_sku || '').toLowerCase() ||
           m.sku.toLowerCase().includes((extracted.detected_name || '').toLowerCase())
@@ -221,20 +217,6 @@ export function App() {
     if (quotation.selectedFleetId) setSelectedFleetId(quotation.selectedFleetId);
     if (quotation.estimationResult) setEstimationResult(quotation.estimationResult);
     setIsSaved(true);
-  };
-
-  // Open Quotation Slip Preview
-  const handleOpenQuotationSlip = (customData = null) => {
-    setQuotationModalData(customData || {
-      companyName,
-      projectName,
-      destination,
-      routeResult,
-      selectedItems,
-      packingResult,
-      estimationResult
-    });
-    setIsQuotationOpen(true);
   };
 
   // Delete saved quotation
@@ -297,11 +279,14 @@ export function App() {
             googleMapsApiKey={settings.googleMapsApiKey}
           />
 
-          {/* Module 3: Material Cargo Builder */}
+          {/* Module 3: Material Cargo Builder (with Volume m3, WA Copy & Screenshot) */}
           <CargoBuilder
             availableMaterials={database.geosynthetics}
             selectedItems={selectedItems}
             setSelectedItems={setSelectedItems}
+            destination={destination}
+            routeResult={routeResult}
+            packingResult={packingResult}
           />
 
           {/* Module 4: Truck Fleet Selector */}
@@ -336,7 +321,6 @@ export function App() {
               routeResult={routeResult}
               packingResult={packingResult}
               onSaveEstimation={handleSaveEstimation}
-              onPrintQuotation={() => handleOpenQuotationSlip()}
               onRecalculate={handleCalculateAiPricing}
               isCalculating={isCalculatingAi}
               isSaved={isSaved}
@@ -346,31 +330,16 @@ export function App() {
       </main>
 
       {/* MODALS */}
-      {/* 1. Official Quotation Slip Preview Modal */}
-      <QuotationModal
-        isOpen={isQuotationOpen}
-        onClose={() => setIsQuotationOpen(false)}
-        companyName={quotationModalData?.companyName || companyName}
-        projectName={quotationModalData?.projectName || projectName}
-        destination={quotationModalData?.destination || destination}
-        routeResult={quotationModalData?.routeResult || routeResult}
-        selectedItems={quotationModalData?.selectedItems || selectedItems}
-        packingResult={quotationModalData?.packingResult || packingResult}
-        estimationResult={quotationModalData?.estimationResult || estimationResult}
-        quotationId={quotationModalData?.id}
-      />
-
-      {/* 2. Quotation History Drawer */}
+      {/* 1. Quotation History Drawer */}
       <HistoryDrawer
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
         quotations={quotations}
         onLoadQuotation={handleLoadQuotation}
         onDeleteQuotation={handleDeleteQuotation}
-        onPrintQuotation={(item) => handleOpenQuotationSlip(item)}
       />
 
-      {/* 3. Database Studio (Material & Truck Master Editor) */}
+      {/* 2. Database Studio (Material & Truck Master Editor) */}
       <DatabaseStudio
         isOpen={isDatabaseOpen}
         onClose={() => setIsDatabaseOpen(false)}
@@ -379,7 +348,7 @@ export function App() {
         onResetDatabase={handleResetDatabase}
       />
 
-      {/* 4. Settings & API Keys Modal */}
+      {/* 3. Settings & API Keys Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}

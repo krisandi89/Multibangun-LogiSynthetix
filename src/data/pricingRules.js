@@ -4,7 +4,6 @@
 
 export const PRICING_PARAMETERS = {
   fuel_price_per_liter: 15500, // Dexlite / Biosolar Industri standard (IDR)
-  labor_handling_per_roll: 25000, // Loading & unloading per roll (IDR)
   driver_allowance_per_day: 350000, // Driver meal, lodging, parking
   insurance_rate: 0.002, // 0.2% of cargo value approx
   default_toll_rate_per_km: 1200 // Average highway toll per km in Java (Golongan II/III/IV)
@@ -45,6 +44,11 @@ export function estimateTollCost(distanceKm, truckCategory = "Fuso") {
   }
 
   return Math.round(baseToll * multiplier);
+}
+
+export function calculateRollVolumeM3(lengthM, diameterM) {
+  const radius = (diameterM || 0.5) / 2;
+  return Math.PI * radius * radius * (lengthM || 4.0);
 }
 
 export function formatRupiah(amount) {

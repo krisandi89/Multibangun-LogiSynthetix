@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
-import { X, History, Search, Trash2, ExternalLink, Printer, Download, FolderOpen, Calendar, MapPin } from 'lucide-react';
-import { formatRupiah, formatNumber } from '../data/pricingRules';
+import { X, History, Search, Trash2, Download, FolderOpen, MapPin, Copy, Check } from 'lucide-react';
+import { formatRupiah, formatNumber, calculateRollVolumeM3 } from '../data/pricingRules';
 
 export function HistoryDrawer({
   isOpen,
   onClose,
   quotations = [],
   onLoadQuotation,
-  onDeleteQuotation,
-  onPrintQuotation
+  onDeleteQuotation
 }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [copiedId, setCopiedId] = useState(null);
 
   if (!isOpen) return null;
 
@@ -28,9 +28,33 @@ export function HistoryDrawer({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `multibangun_quotations_history_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `multibangun_estimasi_history_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleCopyHistoryWa = (item) => {
+    const dest = item.destination || '-';
+    const dist = item.routeResult?.distanceKm ? `${item.routeResult.distanceKm} km` : '-';
+    const totalRolls = item.selectedItems?.reduce((s, i) => s + (parseInt(i.quantity, 10) || 0), 0) || 0;
+    const totalKg = item.selectedItems?.reduce((s, i) => s + ((parseInt(i.quantity, 10) || 0) * i.weight_kg), 0) || 0;
+    const totalVol = item.selectedItems?.reduce((s, i) => {
+      const q = parseInt(i.quantity, 10) || 0;
+      return s + (q * calculateRollVolumeM3(i.shipping_dimensions?.cylinder_length_m, i.shipping_dimensions?.cylinder_diameter_m));
+    }, 0) || 0;
+    const fleetName = item.packingResult?.targetFleet?.truck_category || 'Truk';
+    const cost = item.estimationResult?.cost_estimation?.total_estimated_cost || 0;
+
+    let text = `*📦 INFO LOGISTIK PROYEK: ${item.companyName || 'Klien'}*\n`;
+    text += `Ref ID: ${item.id}\n`;
+    text += `Tujuan: ${dest} (${dist})\n`;
+    text += `Total: ${totalRolls} Roll | ${formatNumber(totalKg)} kg (${(totalKg / 1000).toFixed(2)} Ton) | ${totalVol.toFixed(2)} m³\n`;
+    text += `Armada: ${item.packingResult?.totalTrucksCount || 1} Unit ${fleetName}\n`;
+    text += `Est. Ongkir: ${formatRupiah(cost)}\n`;
+
+    navigator.clipboard.writeText(text);
+    setCopiedId(item.id);
+    setTimeout(() => setCopiedId(null), 2500);
   };
 
   return (
@@ -41,7 +65,7 @@ export function HistoryDrawer({
             <History size={20} color="var(--accent-amber)" />
             <div>
               <div style={{ fontWeight: '700', fontSize: '1.05rem', color: 'var(--text-primary)' }}>
-                Database Riwayat Estimasi & Quotation
+                Database Riwayat Estimasi Logistik
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                 Daftar kalkulasi logistik yang telah disimpan ({quotations.length} data)
@@ -70,7 +94,7 @@ export function HistoryDrawer({
               type="text"
               className="form-input"
               style={{ paddingLeft: '2.25rem' }}
-              placeholder="Cari nama PT, kota tujuan, atau No. ID Quotation..."
+              placeholder="Cari nama PT, kota tujuan, atau No. ID Estimasi..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -105,6 +129,7 @@ export function HistoryDrawer({
                 const totalCost = item.estimationResult?.cost_estimation?.total_estimated_cost || 0;
                 const trucksCount = item.packingResult?.totalTrucksCount || 1;
                 const fleetCategory = item.packingResult?.targetFleet?.truck_category || 'Truk';
+                const isItemCopied = copiedId === item.id;
 
                 return (
                   <div
@@ -168,10 +193,10 @@ export function HistoryDrawer({
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
-                        onClick={() => onPrintQuotation(item)}
-                        title="Lihat Slip Quotation"
+                        onClick={() => handleCopyHistoryWa(item)}
+                        title="Salin ringkasan ke WA"
                       >
-                        <Printer size={13} />
+                        {isItemCopied ? <Check size={13} color="var(--accent-emerald)" /> : <Copy size={13} />}
                       </button>
 
                       <button
