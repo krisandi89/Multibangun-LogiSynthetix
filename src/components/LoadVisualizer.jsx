@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Layers, ShieldAlert, Sparkles, Scale, Info, CheckCircle2, ChevronRight, HelpCircle } from 'lucide-react';
+import { Box, Layers, ShieldAlert, Sparkles, Scale, Info, CheckCircle2, ChevronRight } from 'lucide-react';
 import { formatNumber } from '../data/pricingRules';
 
 const CATEGORY_COLORS = {
@@ -39,11 +39,12 @@ export function LoadVisualizer({ packingResult }) {
   const activeTiers = Object.keys(rollsByTier).map(Number).sort((a, b) => a - b);
   const maxTierLoaded = activeTiers.length > 0 ? Math.max(...activeTiers) : 1;
 
-  // Visual layout coordinates
+  // Dynamic tier height calculation to fit cleanly inside the truck bed
   const sideBedX = 100;
   const sideBedWidth = 550;
   const sideFloorY = 175;
-  const sideTierHeight = 28; // Compact direct stacking without gaps
+  const maxAvailableHeight = 125;
+  const sideTierHeight = Math.min(28, Math.max(18, Math.floor(maxAvailableHeight / maxTierLoaded)));
 
   const rearBoxX = 35;
   const rearBoxWidth = 190;
@@ -58,7 +59,7 @@ export function LoadVisualizer({ packingResult }) {
             <span>5. Visualisasi Penataan Muatan Bak Truk (3D/2D Bin-Packing)</span>
           </div>
           <div className="panel-subtitle">
-            Tata letak compact berdempet, kombinasi panjang roll, dan batas tier tumpukan
+            Tata letak compact berdempet ({maxTierLoaded} Tier Tumpukan), kombinasi panjang roll proporsional
           </div>
         </div>
 
@@ -121,7 +122,7 @@ export function LoadVisualizer({ packingResult }) {
         <div>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>JUMLAH ROLL DI TRUK #{currentTruck.truckNumber}</div>
           <div className="font-mono" style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text-primary)', marginTop: '2px' }}>
-            {currentTruck.loadedRolls.length} <span style={{ fontSize: '0.75rem', fontWeight: '500' }}>Roll</span>
+            {currentTruck.loadedRolls.length} <span style={{ fontSize: '0.75rem', fontWeight: '500' }}>Roll ({maxTierLoaded} Tier)</span>
           </div>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
             Total Keseluruhan: {summary.totalRolls} Roll
@@ -141,10 +142,10 @@ export function LoadVisualizer({ packingResult }) {
 
       {/* Visual Truck Diagrams (Side Elevation & Cross Section) */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
-        {/* Diagram 1: Side Elevation View (Tampak Samping Bak - True Proportional Lengths) */}
+        {/* Diagram 1: Side Elevation View (Tampak Samping Bak - Multi-Tier Stacking) */}
         <div className="diagram-box">
           <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>TAMPAK SAMPING (PANJANG BAK {truckL}m)</span>
+            <span>TAMPAK SAMPING (PANJANG BAK {truckL}m) — {maxTierLoaded} TIER</span>
             <span style={{ fontSize: '0.675rem', color: 'var(--accent-cyan)' }}>Depan Truk (Kiri) ➔ Belakang (Kanan)</span>
           </div>
 
@@ -166,23 +167,21 @@ export function LoadVisualizer({ packingResult }) {
             <circle cx="575" cy="195" r="20" fill="#0f172a" stroke="#64748b" strokeWidth="4" />
             <circle cx="575" cy="195" r="8" fill="#334155" />
 
-            {/* Render Compact Stacked Roll Cylinders by Tier */}
+            {/* Render Compact Stacked Roll Cylinders for ALL Tiers (Tier 1 bottom to Tier N top) */}
             {activeTiers.map((tierNum) => {
               const tierRolls = rollsByTier[tierNum] || [];
               const rollY = sideFloorY - (tierNum * sideTierHeight);
 
-              // Group rolls that share the same startX and length (different columns)
+              // Group rolls that share the same startX and length on this tier
               const uniqueLanes = [];
               tierRolls.forEach(r => {
-                const existing = uniqueLanes.find(u => Math.abs(u.startX - r.startX) < 0.1 && Math.abs(u.length - r.length) < 0.1);
+                const existing = uniqueLanes.find(u => Math.abs(u.startX - r.startX) < 0.1 && Math.abs(u.length - r.length) < 0.1 && u.sku === r.sku);
                 if (existing) {
                   existing.count += 1;
-                  existing.skus.push(r.sku);
                 } else {
                   uniqueLanes.push({
                     ...r,
-                    count: 1,
-                    skus: [r.sku]
+                    count: 1
                   });
                 }
               });
@@ -200,35 +199,35 @@ export function LoadVisualizer({ packingResult }) {
                         <rect
                           x={rollX + 2}
                           y={rollY}
-                          width={rollW - 4}
+                          width={Math.max(20, rollW - 4)}
                           height={sideTierHeight}
-                          rx="4"
+                          rx="3"
                           fill={colors.fill}
                           stroke={colors.border}
-                          strokeWidth="2"
+                          strokeWidth="1.5"
                           opacity="0.95"
                         />
-                        {/* Inner 3D roll cylinder highlight */}
+                        {/* 3D cylindrical highlight line */}
                         <line
-                          x1={rollX + 6}
-                          y1={rollY + 5}
-                          x2={rollX + rollW - 8}
-                          y2={rollY + 5}
+                          x1={rollX + 5}
+                          y1={rollY + 4}
+                          x2={rollX + rollW - 7}
+                          y2={rollY + 4}
                           stroke="#ffffff"
-                          strokeWidth="1.5"
-                          opacity="0.5"
+                          strokeWidth="1.2"
+                          opacity="0.4"
                         />
-                        {/* Text Label: SKU, Length, & Quantity */}
+                        {/* Text Label */}
                         <text
                           x={rollX + rollW / 2}
-                          y={rollY + 18}
+                          y={rollY + (sideTierHeight / 2) + 4}
                           textAnchor="middle"
                           fill="#ffffff"
-                          fontSize="10"
+                          fontSize={sideTierHeight > 22 ? "9.5" : "8"}
                           fontFamily="monospace"
                           fontWeight="bold"
                         >
-                          {lane.sku} ({lane.length}m) {lane.count > 1 ? `[${lane.count}x]` : ''}
+                          T{tierNum}: {lane.sku} ({lane.length}m) {lane.count > 1 ? `[${lane.count}x]` : ''}
                         </text>
                       </g>
                     );
@@ -243,7 +242,7 @@ export function LoadVisualizer({ packingResult }) {
           </svg>
         </div>
 
-        {/* Diagram 2: Rear Cross-Section (Tampak Belakang - Compact Tangent Cylinders) */}
+        {/* Diagram 2: Rear Cross-Section (Tampak Belakang - Compact Tangent Cylinders on All Tiers) */}
         <div className="diagram-box">
           <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
             TAMPAK BELAKANG (LEBAR {truckW}m × TINGGI {truckH}m)
@@ -258,27 +257,26 @@ export function LoadVisualizer({ packingResult }) {
             <rect x="42" y="175" width="22" height="35" rx="4" fill="#0f172a" stroke="#64748b" strokeWidth="2" />
             <rect x="196" y="175" width="22" height="35" rx="4" fill="#0f172a" stroke="#64748b" strokeWidth="2" />
 
-            {/* Render Circles Compactly touching each other (Berdempet tanpa jeda) */}
+            {/* Render Circles Compactly touching each other for ALL active tiers */}
             {activeTiers.map((tierNum) => {
               const tierRolls = rollsByTier[tierNum] || [];
-              const countOnTier = Math.min(5, tierRolls.length);
+              const countOnTier = Math.min(6, tierRolls.length);
               if (countOnTier === 0) return null;
 
-              // Calculate tight cylinder diameter so they touch each other with ZERO gap
-              const maxColsPossible = Math.max(countOnTier, Math.floor(truckW / 0.65));
-              const circleDiameter = Math.min(46, Math.floor((rearBoxWidth - 10) / maxColsPossible));
+              // Calculate circle size so circles on all tiers stack snugly inside box
+              const circleDiameter = Math.min(42, Math.max(20, Math.floor(130 / maxTierLoaded)));
               const radius = circleDiameter / 2;
 
-              // Center the cluster of touching circles within the box
+              // Center the touching circles horizontally inside the box
               const totalClusterWidth = countOnTier * circleDiameter;
               const startX = rearBoxX + ((rearBoxWidth - totalClusterWidth) / 2);
 
-              // Compact vertical stacking (each tier sits firmly on tier below)
+              // Stack directly on top of each other (Tier 1 on floor, Tier 2 on top of Tier 1, etc.)
               const cy = rearFloorY - radius - ((tierNum - 1) * circleDiameter);
 
               return (
                 <g key={`rear-tier-${tierNum}`}>
-                  {tierRolls.slice(0, 5).map((roll, colIdx) => {
+                  {tierRolls.slice(0, 6).map((roll, colIdx) => {
                     const cx = startX + radius + (colIdx * circleDiameter);
                     const colors = getColor(roll.category);
 
@@ -294,15 +292,15 @@ export function LoadVisualizer({ packingResult }) {
                           strokeWidth="2"
                           opacity="0.95"
                         />
-                        {/* Core center dot */}
-                        <circle cx={cx} cy={cy} r={radius * 0.18} fill="#ffffff" />
-                        {/* Tier label */}
+                        {/* Core center white dot */}
+                        <circle cx={cx} cy={cy} r={Math.max(2, radius * 0.2)} fill="#ffffff" />
+                        {/* Tier label text */}
                         <text
                           x={cx}
                           y={cy + 3}
                           textAnchor="middle"
                           fill="#ffffff"
-                          fontSize="8"
+                          fontSize={radius > 14 ? "8" : "6.5"}
                           fontFamily="monospace"
                           fontWeight="bold"
                         >

@@ -70,8 +70,9 @@ export function optimizeCargoLoading(selectedItems, availableFleets, preferredFl
     targetFleet = sorted.find(f => f.max_tonnage_kg >= totalWeightKg) || sorted[sorted.length - 1];
   }
 
-  // 2. Perform Realistic 3D Cylinder Roll Stacking simulation
+  // 2. Perform True 3D Multi-Tier Stacking Simulation
   // Sort rolls: Longer rolls first (7m -> 4m -> 2m), then larger diameter, then heavier
+  // This guarantees heavy 7m rolls sit on the bottom tiers (Tier 1, Tier 2), and lighter 4m/2m rolls stack on top!
   const remainingRolls = [...rolls].sort((a, b) => {
     if (b.length !== a.length) return b.length - a.length;
     if (b.diameter !== a.diameter) return b.diameter - a.diameter;
@@ -81,16 +82,16 @@ export function optimizeCargoLoading(selectedItems, availableFleets, preferredFl
   const trucks = [];
   let truckIndex = 1;
 
-  while (remainingRolls.length > 0) {
-    const truckL = targetFleet.cargo_dimensions.max_length_m;
-    const truckW = targetFleet.cargo_dimensions.max_width_m;
-    const truckH = targetFleet.cargo_dimensions.max_height_m;
+  const truckL = targetFleet.cargo_dimensions.max_length_m;
+  const truckW = targetFleet.cargo_dimensions.max_width_m;
+  const truckH = targetFleet.cargo_dimensions.max_height_m;
 
+  while (remainingRolls.length > 0) {
     const currentTruck = {
       truckNumber: truckIndex,
       fleet: targetFleet,
       loadedRolls: [],
-      tiers: {}, // { 1: [rolls], 2: [rolls], 3: [rolls] }
+      tiers: {}, // { 1: [rolls], 2: [rolls], 3: [rolls], ... }
       currentWeightKg: 0,
       maxTonnageKg: targetFleet.max_tonnage_kg,
       weightUtilizationPercent: 0,
@@ -99,76 +100,81 @@ export function optimizeCargoLoading(selectedItems, availableFleets, preferredFl
 
     let unplacedInThisTruck = [];
 
-    // Stacking grid simulation:
-    // We maintain positions in tiers (Tier 1 on floor, Tier 2 on top of Tier 1, etc.)
-    // Along truck length, we can have longitudinal lanes (e.g. 7m roll takes 0m-7m; or two 4m rolls take 0-4m and 4-8m).
-    
-    // We will organize packing into longitudinal segments (bays) along the bed length
-    // For each segment [startX, endX]:
-    // - Calculate how many rolls fit across width W (maxCols = Math.floor(truckW / diameter))
-    // - Calculate how many tiers fit across height H (maxTiers = Math.min(maxTierRule, Math.floor(truckH / diameter)))
+    // Stacking state per tier:
+    // For each tier (1, 2, 3... up to max tier possible for truck height):
+    // We track longitudinal lanes/bays.
+    // A bay on tier T is: { startX: 0, length: 7.0, maxCols: 3, rolls: [roll1, roll2, roll3] }
+    const tierBays = {}; // tier -> array of bays
 
-    // Group rolls by length for systematic layer/bay placement
     for (let r = 0; r < remainingRolls.length; r++) {
       const roll = remainingRolls[r];
 
-      // Check weight limit
+      // Check truck weight limit
       if (currentTruck.currentWeightKg + roll.weight > targetFleet.max_tonnage_kg) {
         unplacedInThisTruck.push(roll);
         continue;
       }
 
-      // Check if this roll fits in the current truck bed
-      // Determine max columns across truck width
-      const maxCols = Math.max(1, Math.floor(truckW / roll.diameter));
-      const maxTiers = Math.min(roll.maxTier, Math.max(1, Math.floor(truckH / roll.diameter)));
+      // Max columns that fit side-by-side across width for this roll's diameter
+      const rollColsCapacity = Math.max(1, Math.floor(truckW / roll.diameter));
+      // Max tier height limit based on truck height and roll logistics rule
+      const maxAllowedTier = Math.min(roll.maxTier, Math.max(1, Math.floor(truckH / roll.diameter)));
 
-      // Find available slot (tier, column, startX)
       let placed = false;
 
-      // Check tier by tier (Tier 1 first, then Tier 2, Tier 3...)
-      for (let tier = 1; tier <= maxTiers; tier++) {
-        if (placed) break;
+      // Find lowest available tier (Tier 1, Tier 2, Tier 3...)
+      for (let tier = 1; tier <= maxAllowedTier; tier++) {
+        if (!tierBays[tier]) {
+          tierBays[tier] = [];
+        }
 
-        const rollsOnTier = currentTruck.loadedRolls.filter(lr => lr.tier === tier);
-        
-        // Find existing lane with same length or check space along bed length
-        // Determine possible startX positions along truck length: 0, or after previous rolls on this tier
-        let startX = 0;
-        let col = 1;
+        const baysOnTier = tierBays[tier];
 
-        // Count how many rolls already exist on this tier at startX = 0
-        const rollsAtFront = rollsOnTier.filter(lr => lr.startX === 0);
-        if (rollsAtFront.length < maxCols) {
-          // Can place at startX = 0 in next column!
-          startX = 0;
-          col = rollsAtFront.length + 1;
-        } else {
-          // If front is full, check if remaining bed length allows a 2nd longitudinal bay
-          const maxFrontLength = Math.max(...rollsAtFront.map(lr => lr.length));
-          const nextStartX = maxFrontLength + 0.1; // 10cm safety gap
-
-          if (nextStartX + roll.length <= truckL + 0.05) {
-            const rollsAtBack = rollsOnTier.filter(lr => lr.startX >= nextStartX - 0.2);
-            if (rollsAtBack.length < maxCols) {
-              startX = nextStartX;
-              col = rollsAtBack.length + 1;
-            }
+        // 1. Check if roll can fit in an existing bay on this tier with same roll length
+        for (const bay of baysOnTier) {
+          if (Math.abs(bay.length - roll.length) < 0.1 && bay.rolls.length < bay.maxCols) {
+            const col = bay.rolls.length + 1;
+            const placedRoll = {
+              ...roll,
+              tier: tier,
+              col: col,
+              maxColsOnTier: bay.maxCols,
+              startX: bay.startX,
+              endX: bay.startX + roll.length,
+              truckNumber: truckIndex
+            };
+            bay.rolls.push(placedRoll);
+            currentTruck.loadedRolls.push(placedRoll);
+            currentTruck.currentWeightKg += roll.weight;
+            placed = true;
+            break;
           }
         }
 
-        // If we found a valid slot on this tier
-        if (col <= maxCols && startX + roll.length <= truckL + 0.05) {
+        if (placed) break;
+
+        // 2. If no existing matching bay on this tier has space, check if we can start a new bay on this tier along the truck length!
+        const usedLengthOnTier = baysOnTier.reduce((sum, b) => sum + b.length, 0);
+        if (usedLengthOnTier + roll.length <= truckL + 0.05) {
+          const newBay = {
+            startX: Math.round(usedLengthOnTier * 100) / 100,
+            length: roll.length,
+            maxCols: rollColsCapacity,
+            rolls: []
+          };
+
           const placedRoll = {
             ...roll,
             tier: tier,
-            col: col,
-            maxColsOnTier: maxCols,
-            startX: Math.round(startX * 100) / 100,
-            endX: Math.round((startX + roll.length) * 100) / 100,
+            col: 1,
+            maxColsOnTier: rollColsCapacity,
+            startX: newBay.startX,
+            endX: newBay.startX + roll.length,
             truckNumber: truckIndex
           };
 
+          newBay.rolls.push(placedRoll);
+          baysOnTier.push(newBay);
           currentTruck.loadedRolls.push(placedRoll);
           currentTruck.currentWeightKg += roll.weight;
           placed = true;
@@ -181,24 +187,23 @@ export function optimizeCargoLoading(selectedItems, availableFleets, preferredFl
       }
     }
 
-    // Calculate utilizations
-    currentTruck.weightUtilizationPercent = Math.round((currentTruck.currentWeightKg / targetFleet.max_tonnage_kg) * 1000) / 10;
-    
-    // Volume approx
-    const truckVolumeM3 = truckL * truckW * truckH;
-    const cargoVolumeM3 = currentTruck.loadedRolls.reduce((sum, r) => {
-      const radius = r.diameter / 2;
-      return sum + (Math.PI * radius * radius * r.length);
-    }, 0);
-    currentTruck.volumeUtilizationPercent = Math.round((cargoVolumeM3 / truckVolumeM3) * 1000) / 10;
-
-    // Group loaded rolls by tier for fast visualization
+    // Group loaded rolls by tier
     const tiersMap = {};
     currentTruck.loadedRolls.forEach(r => {
       if (!tiersMap[r.tier]) tiersMap[r.tier] = [];
       tiersMap[r.tier].push(r);
     });
     currentTruck.tiers = tiersMap;
+
+    // Calculate utilizations
+    currentTruck.weightUtilizationPercent = Math.round((currentTruck.currentWeightKg / targetFleet.max_tonnage_kg) * 1000) / 10;
+    
+    const truckVolumeM3 = truckL * truckW * truckH;
+    const cargoVolumeM3 = currentTruck.loadedRolls.reduce((sum, r) => {
+      const radius = r.diameter / 2;
+      return sum + (Math.PI * radius * radius * r.length);
+    }, 0);
+    currentTruck.volumeUtilizationPercent = Math.round((cargoVolumeM3 / truckVolumeM3) * 1000) / 10;
 
     trucks.push(currentTruck);
 
