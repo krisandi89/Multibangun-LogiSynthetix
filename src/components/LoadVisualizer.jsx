@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Layers, ShieldAlert, Sparkles, Scale, Info, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Box, Layers, ShieldAlert, Sparkles, Scale, Info, CheckCircle2, ChevronRight, Eye } from 'lucide-react';
 import { formatNumber } from '../data/pricingRules';
 
 const CATEGORY_COLORS = {
@@ -12,6 +12,7 @@ const CATEGORY_COLORS = {
 
 export function LoadVisualizer({ packingResult }) {
   const [activeTruckIndex, setActiveTruckIndex] = useState(0);
+  const [crossSectionSlice, setCrossSectionSlice] = useState('front'); // 'front' | 'rear'
 
   if (!packingResult || !packingResult.success || !packingResult.trucks || packingResult.trucks.length === 0) {
     return null;
@@ -28,7 +29,7 @@ export function LoadVisualizer({ packingResult }) {
   const truckW = currentTruck.fleet.cargo_dimensions.max_width_m;
   const truckH = currentTruck.fleet.cargo_dimensions.max_height_m;
 
-  // Group rolls by tier for structured compact rendering
+  // Group rolls by tier
   const rollsByTier = {};
   currentTruck.loadedRolls.forEach(roll => {
     const t = roll.tier || 1;
@@ -39,7 +40,7 @@ export function LoadVisualizer({ packingResult }) {
   const activeTiers = Object.keys(rollsByTier).map(Number).sort((a, b) => a - b);
   const maxTierLoaded = activeTiers.length > 0 ? Math.max(...activeTiers) : 1;
 
-  // Dynamic tier height calculation to fit cleanly inside the truck bed
+  // Dynamic tier height calculation to fit inside the truck bed
   const sideBedX = 100;
   const sideBedWidth = 550;
   const sideFloorY = 175;
@@ -49,6 +50,9 @@ export function LoadVisualizer({ packingResult }) {
   const rearBoxX = 35;
   const rearBoxWidth = 190;
   const rearFloorY = 175;
+
+  // Determine if there are multiple longitudinal sections (e.g. front 4m rolls and rear 2m rolls)
+  const hasMultipleLanes = currentTruck.loadedRolls.some(r => r.startX > 1.0);
 
   return (
     <div className="panel">
@@ -142,7 +146,7 @@ export function LoadVisualizer({ packingResult }) {
 
       {/* Visual Truck Diagrams (Side Elevation & Cross Section) */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
-        {/* Diagram 1: Side Elevation View (Tampak Samping Bak - Multi-Tier Stacking) */}
+        {/* Diagram 1: Side Elevation View (Tampak Samping Bak) */}
         <div className="diagram-box">
           <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span>TAMPAK SAMPING (PANJANG BAK {truckL}m) — {maxTierLoaded} TIER</span>
@@ -242,10 +246,30 @@ export function LoadVisualizer({ packingResult }) {
           </svg>
         </div>
 
-        {/* Diagram 2: Rear Cross-Section (Tampak Belakang - Compact Tangent Cylinders on All Tiers) */}
+        {/* Diagram 2: Rear Cross-Section (Tampak Belakang / Potongan Melintang) */}
         <div className="diagram-box">
-          <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-            TAMPAK BELAKANG (LEBAR {truckW}m × TINGGI {truckH}m)
+          <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>TAMPAK MELINTANG (LEBAR {truckW}m)</span>
+            {hasMultipleLanes && (
+              <div style={{ display: 'flex', gap: '0.2rem' }}>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${crossSectionSlice === 'front' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem' }}
+                  onClick={() => setCrossSectionSlice('front')}
+                >
+                  Depan
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${crossSectionSlice === 'rear' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem' }}
+                  onClick={() => setCrossSectionSlice('rear')}
+                >
+                  Belakang
+                </button>
+              </div>
+            )}
           </div>
 
           <svg viewBox="0 0 260 240" style={{ width: '100%', height: 'auto', background: '#0a0f1d', borderRadius: '8px' }}>
@@ -257,14 +281,27 @@ export function LoadVisualizer({ packingResult }) {
             <rect x="42" y="175" width="22" height="35" rx="4" fill="#0f172a" stroke="#64748b" strokeWidth="2" />
             <rect x="196" y="175" width="22" height="35" rx="4" fill="#0f172a" stroke="#64748b" strokeWidth="2" />
 
-            {/* Render Circles Compactly touching each other for ALL active tiers */}
+            {/* Render Circles Compactly touching each other for ALL active tiers in this cross-section */}
             {activeTiers.map((tierNum) => {
-              const tierRolls = rollsByTier[tierNum] || [];
+              const allRollsOnTier = rollsByTier[tierNum] || [];
+              
+              // Filter rolls according to selected cross section slice:
+              // 'front': rolls that intersect the front section (startX < 3.0m)
+              // 'rear': rolls that intersect the rear section (endX > 3.5m)
+              let tierRolls = allRollsOnTier;
+              if (hasMultipleLanes) {
+                if (crossSectionSlice === 'front') {
+                  tierRolls = allRollsOnTier.filter(r => r.startX < 3.0);
+                } else {
+                  tierRolls = allRollsOnTier.filter(r => r.startX >= 2.0 || r.length > 5.0);
+                }
+              }
+
               const countOnTier = Math.min(6, tierRolls.length);
               if (countOnTier === 0) return null;
 
               // Calculate circle size so circles on all tiers stack snugly inside box
-              const circleDiameter = Math.min(42, Math.max(20, Math.floor(130 / maxTierLoaded)));
+              const circleDiameter = Math.min(38, Math.max(20, Math.floor(130 / maxTierLoaded)));
               const radius = circleDiameter / 2;
 
               // Center the touching circles horizontally inside the box
@@ -300,7 +337,7 @@ export function LoadVisualizer({ packingResult }) {
                           y={cy + 3}
                           textAnchor="middle"
                           fill="#ffffff"
-                          fontSize={radius > 14 ? "8" : "6.5"}
+                          fontSize={radius > 13 ? "8" : "6.5"}
                           fontFamily="monospace"
                           fontWeight="bold"
                         >
