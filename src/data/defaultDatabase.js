@@ -1,6 +1,6 @@
 /**
  * Master Database for Multibangun LogiSynthetix
- * Synchronized with Database JSON Lengkap (Material & Truk).json
+ * Synchronized with Indonesian Logistics Freight Market Rates
  */
 
 export const DEFAULT_DATABASE = {
@@ -91,8 +91,8 @@ export const DEFAULT_DATABASE = {
         max_height_m: 1.6
       },
       max_tonnage_kg: 2500,
-      rate_per_km: 7500,
-      base_rate: 850000,
+      rate_per_km: 4200,
+      base_rate: 550000,
       fuel_consumption_km_l: 7.5
     },
     {
@@ -104,8 +104,8 @@ export const DEFAULT_DATABASE = {
         max_height_m: 1.9
       },
       max_tonnage_kg: 4000,
-      rate_per_km: 9500,
-      base_rate: 1350000,
+      rate_per_km: 6200,
+      base_rate: 850000,
       fuel_consumption_km_l: 6.0
     },
     {
@@ -117,8 +117,8 @@ export const DEFAULT_DATABASE = {
         max_height_m: 2.3
       },
       max_tonnage_kg: 15000,
-      rate_per_km: 16500,
-      base_rate: 2800000,
+      rate_per_km: 9500,
+      base_rate: 1500000,
       fuel_consumption_km_l: 4.0
     },
     {
@@ -130,8 +130,8 @@ export const DEFAULT_DATABASE = {
         max_height_m: 2.3
       },
       max_tonnage_kg: 25000,
-      rate_per_km: 22000,
-      base_rate: 4200000,
+      rate_per_km: 13500,
+      base_rate: 2200000,
       fuel_consumption_km_l: 3.0
     },
     {
@@ -143,8 +143,8 @@ export const DEFAULT_DATABASE = {
         max_height_m: 2.39
       },
       max_tonnage_kg: 22000,
-      rate_per_km: 20000,
-      base_rate: 3900000,
+      rate_per_km: 13000,
+      base_rate: 2000000,
       fuel_consumption_km_l: 3.2
     },
     {
@@ -156,8 +156,8 @@ export const DEFAULT_DATABASE = {
         max_height_m: 2.39
       },
       max_tonnage_kg: 29000,
-      rate_per_km: 26000,
-      base_rate: 5500000,
+      rate_per_km: 16500,
+      base_rate: 2800000,
       fuel_consumption_km_l: 2.5
     }
   ]

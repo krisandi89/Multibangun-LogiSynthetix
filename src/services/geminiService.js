@@ -148,19 +148,26 @@ export async function calculateLogisticsWithGemini({
   const targetFleet = selectedFleet || packingResult?.targetFleet;
   const truckCategory = targetFleet?.truck_category || "Fuso Standar";
 
-  // Deterministic calculation baseline
-  const baseRatePerTruck = targetFleet?.base_rate || 2800000;
-  const ratePerKm = targetFleet?.rate_per_km || 16500;
-  const fuelKmPerLiter = targetFleet?.fuel_consumption_km_l || 4.0;
+  // Calibrated real-world market pricing formula (all-in market trucking rates)
+  // Distance-tiered rate per km: for long-haul (>300km) trucking companies have return loads, so per-km rate is more economical
+  const baseRatePerTruck = targetFleet?.base_rate || 1500000;
+  let ratePerKm = targetFleet?.rate_per_km || 9500;
   
+  if (distanceKm > 600) {
+    ratePerKm = ratePerKm * 0.90; // 10% discount for interprovincial long haul >600km
+  } else if (distanceKm > 300) {
+    ratePerKm = ratePerKm * 0.95;
+  }
+
+  const fuelKmPerLiter = targetFleet?.fuel_consumption_km_l || 4.0;
   const estimatedFuelLiters = Math.round((distanceKm / fuelKmPerLiter) * 10) / 10;
   const estimatedFuelCost = Math.round(estimatedFuelLiters * PRICING_PARAMETERS.fuel_price_per_liter) * truckCount;
   const estimatedTollCostSingle = estimateTollCost(distanceKm, truckCategory);
   const estimatedTollCostTotal = estimatedTollCostSingle * truckCount;
-  const driverAllowance = Math.round(PRICING_PARAMETERS.driver_allowance_per_day * Math.max(1, Math.ceil(distanceKm / 400))) * truckCount;
   
+  // Total shipping rate is calculated based on realistic all-in market freight
   const distanceBasedRentalCost = Math.round(baseRatePerTruck + (distanceKm * ratePerKm)) * truckCount;
-  const calculatedTotalCost = distanceBasedRentalCost + estimatedTollCostTotal;
+  const calculatedTotalCost = distanceBasedRentalCost; // Real market rates already bundle standard fuel & base trucking
 
   // Fallback structure
   const fallbackResult = {
@@ -183,13 +190,13 @@ export async function calculateLogisticsWithGemini({
     },
     cost_estimation: {
       currency: "IDR",
-      truck_rental_base: distanceBasedRentalCost,
+      truck_rental_base: distanceBasedRentalCost - estimatedFuelCost,
       estimated_fuel_cost: estimatedFuelCost,
       estimated_toll_cost: estimatedTollCostTotal,
-      driver_allowance: driverAllowance,
+      driver_allowance: 0,
       total_estimated_cost: calculatedTotalCost,
       cost_per_roll: Math.round(calculatedTotalCost / (packingResult.summary.totalRolls || 1)),
-      pricing_basis_explanation: `Perhitungan menggunakan tarif pasar logistik trucking Indonesia untuk rute Gudang Bitung Tangerang ke ${destination.name || destination.address} (${distanceKm} km, durasi ${durationText}). Termasuk komponen sewa unit ${truckCategory} (${truckCount}x), bahan bakar solar industri, dan estimasi tol rute pengiriman.`
+      pricing_basis_explanation: `Perhitungan menggunakan tarif riil pasar ekspedisi trucking Indonesia untuk rute Gudang Bitung Tangerang ke ${destination.name || destination.address} (${distanceKm} km, durasi ${durationText}). Estimasi harga all-in armada ${truckCategory} (${truckCount}x) mencakup sewa unit, BBM, dan operasional pengemudi.`
     },
     ai_insights: `Kapasitas angkut optimal dengan utilisasi ${packingResult.trucks[0]?.weightUtilizationPercent || 80}%. Pengiriman langsung dari Hub Bitung Tangerang.`
   };
@@ -203,15 +210,11 @@ export async function calculateLogisticsWithGemini({
 Anda menghitung estimasi penataan muatan (bin-packing geosintetik) dan harga riil pasar angkutan logistik truk di Indonesia.
 Gunakan data jarak PASTI (${distanceKm} km) dan durasi perjalanan (${durationText}) dari Google Maps.
 JANGAN MENGARANG JARAK. Gunakan titik asal tetap: Gudang PT Multibangun Rekatama Patria, Bitung, Tangerang.
-CATATAN: JANGAN masukkan biaya bongkar muat dalam perhitungan.
-
-Hitung secara rinci dan realistis:
-1. Total armada yang dibutuhkan dan analisis distribusi tier roll.
-2. Estimasi biaya pasar trucking Indonesia:
-   - Biaya sewa armada per km & base rate untuk tipe armada ${truckCategory}
-   - Estimasi BBM Solar Industri/Dexlite
-   - Estimasi tarif Tol (misal Tol Tangerang-Merak, Tol Trans-Jawa, Cipularang, dsb.)
-   - Total estimasi biaya pengiriman dalam Rupiah (IDR).
+CATATAN PENTING HARGA PASAR INDONESIA:
+- Rute Tangerang/Bitung ke Jawa Timur (Surabaya/Sidoarjo ~800 km) untuk Truk Fuso Standar pasar riilnya berada di kisaran Rp 8.500.000 - Rp 9.800.000 (Rp 9 jutaan).
+- Rute ke Semarang (~470 km) Fuso berada di kisaran Rp 5.500.000 - Rp 6.500.000.
+- Rute ke Bandung (~170 km) Fuso berada di kisaran Rp 2.800.000 - Rp 3.500.000.
+- JANGAN memasukkan biaya bongkar muat.
 
 Format output HARUS berupa JSON murni dengan skema:
 {
@@ -243,7 +246,7 @@ Format output HARUS berupa JSON murni dengan skema:
   "ai_insights": "string"
 }`;
 
-  const payloadPrompt = `Hitung optimasi muatan dan estimasi biaya logistik untuk:
+  const payloadPrompt = `Hitung optimasi muatan dan estimasi biaya logistik pasar riil Indonesia untuk:
 - Klien: ${companyName || 'PT Pengguna Jasa'}
 - Asal: ${FIXED_ORIGIN.name}, ${FIXED_ORIGIN.short_address}
 - Tujuan: ${destination.name || destination.address}
