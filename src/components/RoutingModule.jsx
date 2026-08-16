@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Navigation, MapPin, Compass, Clock, Search, ArrowRight, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Navigation, MapPin, Compass, Clock, Search, ArrowRight, CheckCircle, AlertCircle, Loader2, Link2 } from 'lucide-react';
 import { FIXED_ORIGIN } from '../data/defaultDatabase';
 import { calculateRouteDistance } from '../services/distanceService';
 import L from 'leaflet';
@@ -13,14 +13,14 @@ L.Icon.Default.mergeOptions({
 });
 
 const QUICK_DESTINATIONS = [
+  "PIK 2 (Pantai Indah Kapuk 2)",
+  "BSD City, Tangerang",
+  "Kawasan Industri Cikande",
   "Bandung, Jawa Barat",
   "Semarang, Jawa Tengah",
+  "Sidoarjo, Jawa Timur",
   "Surabaya, Jawa Timur",
-  "Cirebon, Jawa Barat",
-  "Pelabuhan Merak, Banten",
-  "Yogyakarta, D.I.Y",
-  "Bandar Lampung, Lampung",
-  "Palembang, Sumatera Selatan"
+  "Pelabuhan Merak, Banten"
 ];
 
 export function RoutingModule({
@@ -90,7 +90,7 @@ export function RoutingModule({
       iconAnchor: [14, 14]
     });
 
-    const originMarker = L.marker([FIXED_ORIGIN.lat, FIXED_ORIGIN.lng], { icon: originIcon })
+    L.marker([FIXED_ORIGIN.lat, FIXED_ORIGIN.lng], { icon: originIcon })
       .bindPopup(`<b>${FIXED_ORIGIN.name}</b><br/>Titik Asal Logistik`)
       .addTo(layers);
 
@@ -135,7 +135,7 @@ export function RoutingModule({
             <span>2. Rute & Jarak Pengiriman (Google Maps Engine)</span>
           </div>
           <div className="panel-subtitle">
-            Kalkulasi jarak km akurat & durasi tempuh otomatis dari Hub Bitung
+            Kalkulasi jarak km akurat dari Hub Bitung (Mendukung Link Share Google Maps & Nama Lokasi)
           </div>
         </div>
         {routeResult && (
@@ -166,18 +166,18 @@ export function RoutingModule({
           </span>
         </div>
 
-        {/* Destination Input */}
+        {/* Destination Input (Supports Address, City, or Google Maps Share Link) */}
         <div className="form-group">
           <label className="form-label">
             <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <Compass size={14} color="var(--accent-amber)" /> Alamat / Kota Tujuan Pengiriman <span style={{ color: 'var(--accent-rose)' }}>*</span>
+              <Compass size={14} color="var(--accent-amber)" /> Alamat / Link Share Google Maps <span style={{ color: 'var(--accent-rose)' }}>*</span>
             </span>
           </label>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <input
               type="text"
               className="form-input"
-              placeholder="cth: Bandung, Jawa Barat atau Link Google Maps"
+              placeholder="cth: PIK 2, Sidoarjo, atau paste link https://maps.app.goo.gl/..."
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
               onKeyDown={(e) => {
@@ -193,6 +193,9 @@ export function RoutingModule({
               <span>Hitung Jarak</span>
             </button>
           </div>
+          <span style={{ fontSize: '0.685rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <Link2 size={11} color="var(--accent-cyan)" /> Mendukung link pendek <code className="font-mono" style={{ color: 'var(--accent-cyan)' }}>maps.app.goo.gl</code>, koordinat, maupun nama proyek seperti <strong>PIK 2</strong>.
+          </span>
         </div>
       </div>
 
@@ -227,7 +230,10 @@ export function RoutingModule({
           border: '1px solid var(--border-subtle)'
         }}>
           <div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Jarak Tempuh Riil</div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Tujuan Terdeteksi</div>
+            <div style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--text-primary)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {routeResult.destination?.name || destination}
+            </div>
             <div className="font-mono" style={{ fontSize: '1.25rem', fontWeight: '800', color: 'var(--accent-cyan)' }}>
               {routeResult.distanceKm.toLocaleString('id-ID')} <span style={{ fontSize: '0.85rem' }}>KM</span>
             </div>
@@ -235,7 +241,7 @@ export function RoutingModule({
 
           <div>
             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Estimasi Waktu Tempuh</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <div style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '4px' }}>
               <Clock size={15} color="var(--accent-amber)" />
               <span>{routeResult.durationText}</span>
             </div>
@@ -243,7 +249,7 @@ export function RoutingModule({
 
           <div>
             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Routing Provider</div>
-            <div style={{ fontSize: '0.775rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <div style={{ fontSize: '0.775rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '4px' }}>
               <ArrowRight size={13} color="var(--accent-emerald)" />
               <span>{routeResult.source}</span>
             </div>
