@@ -2,12 +2,13 @@ import { FIXED_ORIGIN } from '../data/defaultDatabase';
 
 /**
  * Service to calculate road distance and travel duration
- * Supports Google Maps URL parsing, Shortlink Resolving, API & OSRM Engine
+ * Supports Google Maps Shortlink Resolving, URL parsing, and OSRM / Geocoding
  */
 
 // Popular Indonesian project & industrial presets
 const INDONESIAN_LOCATIONS_PRESET = [
   // Mega Projects & Jabodetabek
+  { name: "Greenbelt PIK 2, Tangerang", query: "greenbelt pik 2", lat: -6.0534, lng: 106.6999, distKm: 38, durationMin: 45 },
   { name: "PIK 2 (Pantai Indah Kapuk 2), Tangerang", query: "pik 2", lat: -6.0528, lng: 106.6961, distKm: 38, durationMin: 45 },
   { name: "PIK 1 (Pantai Indah Kapuk), Jakarta Utara", query: "pik 1", lat: -6.1132, lng: 106.7412, distKm: 34, durationMin: 40 },
   { name: "Pantai Indah Kapuk", query: "pantai indah kapuk", lat: -6.0828, lng: 106.7161, distKm: 36, durationMin: 42 },
@@ -56,24 +57,76 @@ const INDONESIAN_LOCATIONS_PRESET = [
  * Resolves Google Maps Shortlink (maps.app.goo.gl or goo.gl/maps)
  */
 async function resolveGoogleMapsShortlink(shortUrl) {
-  try {
-    // Try to fetch expanded redirect URL via CORS proxy
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(shortUrl)}`;
-    const res = await fetch(proxyUrl);
-    if (res.ok) {
-      const htmlText = await res.text();
-      // Look for coordinates or destination in the redirected HTML
-      const coordMatch = htmlText.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || htmlText.match(/center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/) || htmlText.match(/q=(-?\d+\.\d+),(-?\d+\.\d+)/);
-      if (coordMatch) {
-        return {
-          lat: parseFloat(coordMatch[1]),
-          lng: parseFloat(coordMatch[2])
-        };
+  const proxies = [
+    (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+  ];
+
+  for (const getProxyUrl of proxies) {
+    try {
+      const targetUrl = getProxyUrl(shortUrl);
+      const res = await fetch(targetUrl);
+      if (res.ok) {
+        const htmlText = await res.text();
+
+        // 1. Check center coordinate query
+        const centerMatch = htmlText.match(/center=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/);
+        if (centerMatch) {
+          const lat = parseFloat(centerMatch[1]);
+          const lng = parseFloat(centerMatch[2]);
+          
+          // Also try to extract place title
+          let placeTitle = "Lokasi Google Maps";
+          const queryMatch = htmlText.match(/q=([^&"'>]+)/);
+          if (queryMatch) {
+            placeTitle = decodeURIComponent(queryMatch[1].replace(/\+/g, ' '));
+          }
+          return { lat, lng, placeTitle };
+        }
+
+        // 2. Check 3d/4d pb protobuf parameters: 3d-6.0533872!4d106.6999887 or 3d-6.0533872%214d106.6999887
+        const pbMatch = htmlText.match(/3d(-?\d+\.\d+)(?:!4d|%214d)(-?\d+\.\d+)/);
+        if (pbMatch) {
+          const lat = parseFloat(pbMatch[1]);
+          const lng = parseFloat(pbMatch[2]);
+          let placeTitle = "Titik Pin Google Maps";
+          const queryMatch = htmlText.match(/q=([^&"'>]+)/);
+          if (queryMatch) {
+            placeTitle = decodeURIComponent(queryMatch[1].replace(/\+/g, ' '));
+          }
+          return { lat, lng, placeTitle };
+        }
+
+        // 3. Check @lat,lng standard pattern
+        const atCoordMatch = htmlText.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+        if (atCoordMatch) {
+          return {
+            lat: parseFloat(atCoordMatch[1]),
+            lng: parseFloat(atCoordMatch[2]),
+            placeTitle: "Titik Pin Google Maps"
+          };
+        }
+
+        // 4. Check place name query parameter
+        const qMatch = htmlText.match(/q=([^&"'>]+)/);
+        if (qMatch) {
+          const extractedName = decodeURIComponent(qMatch[1].replace(/\+/g, ' '));
+          const geo = await geocodeAddress(extractedName);
+          if (geo && geo.lat) {
+            return {
+              lat: geo.lat,
+              lng: geo.lng,
+              placeTitle: extractedName
+            };
+          }
+        }
       }
+    } catch (err) {
+      console.warn("Proxy attempt failed, trying next proxy:", err);
     }
-  } catch (err) {
-    console.warn("Shortlink resolution failed, falling back to direct parse:", err);
   }
+
   return null;
 }
 
@@ -104,7 +157,7 @@ export async function parseDestinationInput(input) {
         type: 'coordinates',
         lat: resolved.lat,
         lng: resolved.lng,
-        label: `Google Maps Pin (${resolved.lat.toFixed(4)}, ${resolved.lng.toFixed(4)})`
+        label: resolved.placeTitle || `Pin Google Maps (${resolved.lat.toFixed(4)}, ${resolved.lng.toFixed(4)})`
       };
     }
   }
@@ -195,11 +248,11 @@ export async function geocodeAddress(address) {
     console.warn("Geocoding fallback triggered:", err);
   }
 
-  // Default fallback to Jakarta
+  // Default fallback
   return {
-    lat: -6.2088,
-    lng: 106.8456,
-    displayName: address + " (Estimasi Area Jabodetabek)"
+    lat: -6.0528,
+    lng: 106.6961,
+    displayName: address
   };
 }
 
