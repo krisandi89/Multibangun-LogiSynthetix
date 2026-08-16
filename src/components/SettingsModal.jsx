@@ -118,42 +118,17 @@ export function SettingsModal({
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
               <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Harga BBM Solar (Rp/Liter)</label>
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>Harga BBM Bio Solar (Rp/Liter)</label>
                 <input
                   type="number"
                   className="form-input font-mono"
-                  value={formData.pricing.fuel_price_per_liter}
+                  value={formData.pricing.fuel_price_per_liter || 6800}
                   onChange={(e) => setFormData({
                     ...formData,
-                    pricing: { ...formData.pricing, fuel_price_per_liter: parseInt(e.target.value, 10) || 15500 }
+                    pricing: { ...formData.pricing, fuel_price_per_liter: parseInt(e.target.value, 10) || 6800 }
                   })}
                 />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Upah Bongkar/Muat (Rp/Roll)</label>
-                <input
-                  type="number"
-                  className="form-input font-mono"
-                  value={formData.pricing.labor_handling_per_roll}
-                  onChange={(e) => setFormData({
-                    ...formData,
-                    pricing: { ...formData.pricing, labor_handling_per_roll: parseInt(e.target.value, 10) || 25000 }
-                  })}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Uang Jalan Driver (Rp/Hari)</label>
-                <input
-                  type="number"
-                  className="form-input font-mono"
-                  value={formData.pricing.driver_allowance_per_day}
-                  onChange={(e) => setFormData({
-                    ...formData,
-                    pricing: { ...formData.pricing, driver_allowance_per_day: parseInt(e.target.value, 10) || 350000 }
-                  })}
-                />
+                <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>Default: Rp 6.800 (Bio Solar)</span>
               </div>
 
               <div className="form-group">
@@ -161,12 +136,13 @@ export function SettingsModal({
                 <input
                   type="number"
                   className="form-input font-mono"
-                  value={formData.pricing.default_toll_rate_per_km}
+                  value={formData.pricing.default_toll_rate_per_km || 1200}
                   onChange={(e) => setFormData({
                     ...formData,
                     pricing: { ...formData.pricing, default_toll_rate_per_km: parseInt(e.target.value, 10) || 1200 }
                   })}
                 />
+                <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>Default: Rp 1.200/km (Trans-Jawa)</span>
               </div>
             </div>
           </div>

@@ -3,7 +3,7 @@
  */
 
 export const PRICING_PARAMETERS = {
-  fuel_price_per_liter: 15500, // Dexlite / Biosolar Industri standard (IDR)
+  fuel_price_per_liter: 6800, // Bio Solar Subsidi standard (Rp 6.800/liter)
   driver_allowance_per_day: 350000, // Driver meal, lodging, parking
   insurance_rate: 0.002, // 0.2% of cargo value approx
   default_toll_rate_per_km: 1200 // Average highway toll per km in Java (Golongan II/III/IV)

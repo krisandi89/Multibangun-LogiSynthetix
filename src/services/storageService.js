@@ -102,7 +102,16 @@ export function getUserSettings() {
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (saved) {
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      return {
+        geminiApiKey: parsed.geminiApiKey || "",
+        googleMapsApiKey: parsed.googleMapsApiKey || "",
+        pricing: {
+          ...PRICING_PARAMETERS,
+          ...(parsed.pricing || {}),
+          fuel_price_per_liter: parsed.pricing?.fuel_price_per_liter === 15500 ? 6800 : (parsed.pricing?.fuel_price_per_liter || 6800)
+        }
+      };
     }
   } catch (err) {
     console.error("Failed to load settings:", err);
