@@ -1,242 +1,356 @@
-/**
- * 3D/2D Bin-Packing and Load Optimization for Cylindrical Geosynthetic Rolls
+/** Conservative rectangular-envelope packing. Dimensions are metres, mass is kg.
+ * Stacked rolls require load-spreading supports; this is a planning model, not a loading certificate.
  */
-
-export function optimizeCargoLoading(selectedItems, availableFleets, preferredFleetId = null) {
-  // 1. Flatten all requested rolls into individual roll objects
-  const rolls = [];
-  selectedItems.forEach(item => {
-    const qty = parseInt(item.quantity, 10) || 0;
-    for (let i = 0; i < qty; i++) {
-      rolls.push({
-        id: `${item.sku}-${i + 1}`,
-        sku: item.sku,
-        category: item.category,
-        specification: item.specification,
-        length: item.shipping_dimensions?.cylinder_length_m || 4.0,
-        diameter: item.shipping_dimensions?.cylinder_diameter_m || 0.5,
-        weight: item.weight_kg || 100,
-        stackable: item.logistics_rules?.stackable ?? true,
-        maxTier: item.logistics_rules?.max_stack_tier || 3
+const EPS = 1e-7;
+const positive = (n) => typeof n === "number" && Number.isFinite(n) && n > 0;
+export function validateMaterial(m) {
+  const errors = [];
+  if (!m || typeof m !== "object") return ["Material tidak valid."];
+  if (typeof m.sku !== "string" || !m.sku.trim())
+    errors.push("SKU wajib diisi.");
+  if (!positive(m.weight_kg))
+    errors.push(`${m.sku}: berat kotor harus lebih dari 0 kg.`);
+  for (const k of ["cylinder_length_m", "cylinder_diameter_m"])
+    if (!positive(m.shipping_dimensions?.[k]))
+      errors.push(`${m.sku}: ukuran roll harus lebih dari 0 m.`);
+  if (
+    !Number.isInteger(m.logistics_rules?.max_stack_tier) ||
+    m.logistics_rules.max_stack_tier < 1 ||
+    m.logistics_rules.max_stack_tier > 20
+  )
+    errors.push(`${m.sku}: batas tumpukan harus 1–20 tingkat.`);
+  if (
+    m.logistics_rules?.max_stack_load_kg != null &&
+    (!Number.isFinite(m.logistics_rules.max_stack_load_kg) ||
+      m.logistics_rules.max_stack_load_kg < 0)
+  )
+    errors.push(`${m.sku}: batas beban atas tidak valid.`);
+  if (typeof m.logistics_rules?.stackable !== "boolean")
+    errors.push(`${m.sku}: aturan boleh ditumpuk wajib diisi.`);
+  return errors;
+}
+export function validateFleet(f) {
+  const errors = [];
+  if (!f || typeof f !== "object") return ["Armada tidak valid."];
+  if (
+    typeof f.fleet_id !== "string" ||
+    !f.fleet_id.trim() ||
+    typeof f.truck_category !== "string" ||
+    !f.truck_category.trim()
+  )
+    errors.push("ID dan nama armada wajib diisi.");
+  for (const k of ["max_length_m", "max_width_m", "max_height_m"])
+    if (!positive(f.cargo_dimensions?.[k]))
+      errors.push(`${f.truck_category}: ukuran bak tidak valid.`);
+  if (!positive(f.max_tonnage_kg))
+    errors.push(`${f.truck_category}: payload tidak valid.`);
+  for (const k of ["base_rate", "rate_per_km"])
+    if (!Number.isFinite(f[k]) || f[k] < 0)
+      errors.push(`${f.truck_category}: tarif tidak valid.`);
+  if (!positive(f.fuel_consumption_km_l))
+    errors.push(`${f.truck_category}: konsumsi BBM tidak valid.`);
+  for (const k of ["door_width_m", "door_height_m"])
+    if (f[k] != null && !positive(f[k]))
+      errors.push(`${f.truck_category}: ukuran pintu tidak valid.`);
+  return errors;
+}
+export function validateDatabase(db) {
+  if (
+    !Array.isArray(db?.geosynthetics) ||
+    !Array.isArray(db?.logistics_fleet) ||
+    !db.geosynthetics.length ||
+    !db.logistics_fleet.length
+  )
+    return ["Database harus berisi material dan armada."];
+  const errors = [
+    ...db.geosynthetics.flatMap(validateMaterial),
+    ...db.logistics_fleet.flatMap(validateFleet),
+  ];
+  for (const [rows, key] of [
+    [db.geosynthetics, "sku"],
+    [db.logistics_fleet, "fleet_id"],
+  ])
+    if (new Set(rows.map((r) => r[key])).size !== rows.length)
+      errors.push(`Ada ${key} duplikat.`);
+  return errors;
+}
+export const rollVolume = (m) =>
+  Math.PI *
+  (m.shipping_dimensions.cylinder_diameter_m / 2) ** 2 *
+  m.shipping_dimensions.cylinder_length_m;
+function fitReason(r, f) {
+  const d = f.cargo_dimensions;
+  if (r.length > d.max_length_m + EPS)
+    return "Panjang roll melebihi panjang bak";
+  if (r.diameter > d.max_width_m + EPS)
+    return "Diameter roll melebihi lebar bak";
+  if (r.diameter > d.max_height_m + EPS)
+    return "Diameter roll melebihi tinggi bak";
+  if (
+    (f.door_width_m && r.diameter > f.door_width_m + EPS) ||
+    (f.door_height_m && r.diameter > f.door_height_m + EPS)
+  )
+    return "Diameter roll melebihi bukaan pintu";
+  if (r.weight > f.max_tonnage_kg + EPS)
+    return "Berat satu roll melebihi payload";
+  return null;
+}
+const overlap = (a, b) =>
+  a.x < b.x + b.length - EPS &&
+  a.x + a.length > b.x + EPS &&
+  a.y < b.y + b.diameter - EPS &&
+  a.y + a.diameter > b.y + EPS &&
+  a.z < b.z + b.diameter - EPS &&
+  a.z + a.diameter > b.z + EPS;
+function placeRoll(r, t, f) {
+  if (t.currentWeightKg + r.weight > f.max_tonnage_kg + EPS) return null;
+  const placed = t.loadedRolls,
+    d = f.cargo_dimensions;
+  const xs = [...new Set([0, ...placed.map((a) => a.x + a.length)])].sort(
+    (a, b) => a - b,
+  );
+  const ys = [...new Set([0, ...placed.map((a) => a.y + a.diameter)])].sort(
+    (a, b) => a - b,
+  );
+  const floor = [];
+  for (const y of ys)
+    for (const x of xs)
+      floor.push({
+        x,
+        y,
+        z: 0,
+        tier: 1,
+        stackLimit: r.maxTier,
+        remainingSupportKg: Infinity,
       });
+  // A stack occupies one continuous footprint. Smaller top rolls require spacers/dunnage.
+  const tops = placed
+    .filter(
+      (a) =>
+        a.stackable &&
+        r.stackable &&
+        r.weight <= a.weight + EPS &&
+        r.length <= a.length + EPS &&
+        r.diameter <= a.diameter + EPS &&
+        a.tier < Math.min(a.stackLimit, r.maxTier),
+    )
+    .map((a) => ({
+      x: a.x,
+      y: a.y,
+      z: a.z + a.diameter,
+      tier: a.tier + 1,
+      stackLimit: Math.min(a.stackLimit, r.maxTier),
+      supportId: a.id,
+      remainingSupportKg: a.remainingSupportKg,
+    }))
+    .sort((a, b) => a.z - b.z || a.y - b.y || a.x - b.x);
+  for (const p of [...floor, ...tops]) {
+    if (
+      p.x + r.length > d.max_length_m + EPS ||
+      p.y + r.diameter > d.max_width_m + EPS ||
+      p.z + r.diameter > d.max_height_m + EPS
+    )
+      continue;
+    const candidate = { ...r, ...p };
+    if (placed.some((a) => overlap(candidate, a))) continue;
+    const chain = [];
+    let support = placed.find((a) => a.id === p.supportId);
+    while (support) {
+      chain.push(support);
+      support = placed.find((a) => a.id === support.supportId);
     }
-  });
-
-  if (rolls.length === 0) {
+    if (chain.some((a) => a.remainingSupportKg < r.weight - EPS)) continue;
+    chain.forEach((a) => (a.remainingSupportKg -= r.weight));
     return {
-      success: false,
-      message: "Tidak ada material yang dipilih.",
-      trucks: [],
-      summary: null
+      ...candidate,
+      remainingSupportKg: r.maxStackLoadKg ?? Infinity,
+      startX: p.x,
+      endX: p.x + r.length,
+      truckNumber: t.truckNumber,
     };
   }
-
-  // Calculate gross totals
-  const totalWeightKg = rolls.reduce((sum, r) => sum + r.weight, 0);
-  const maxRollLength = Math.max(...rolls.map(r => r.length));
-  const maxRollDiameter = Math.max(...rolls.map(r => r.diameter));
-
-  // Determine candidate fleets that can physically fit the longest roll
-  const validFleets = availableFleets.filter(f => f.cargo_dimensions.max_length_m >= maxRollLength);
-
-  if (validFleets.length === 0) {
-    return {
-      success: false,
-      message: `Panjang gulungan terpanjang (${maxRollLength}m) melebihi kapasitas panjang semua jenis armada yang tersedia.`,
-      trucks: [],
-      summary: { totalWeightKg, totalRolls: rolls.length, maxRollLength }
-    };
-  }
-
-  // Determine target fleet
-  let targetFleet = null;
-  if (preferredFleetId && preferredFleetId !== 'AUTO') {
-    targetFleet = availableFleets.find(f => f.fleet_id === preferredFleetId);
-    if (targetFleet && targetFleet.cargo_dimensions.max_length_m < maxRollLength) {
-      return {
-        success: false,
-        message: `Truk pilihan (${targetFleet.truck_category}) memiliki panjang bak ${targetFleet.cargo_dimensions.max_length_m}m, tidak muat untuk gulungan ${maxRollLength}m. Silakan pilih armada yang lebih besar (misal: Fuso atau Tronton).`,
-        trucks: [],
-        summary: { totalWeightKg, totalRolls: rolls.length, maxRollLength }
+  return null;
+}
+function simulate(rolls, fleet) {
+  const unplaced = [],
+    trucks = [];
+  for (const roll of rolls) {
+    const reason = fitReason(roll, fleet);
+    if (reason) {
+      unplaced.push({ ...roll, reason });
+      continue;
+    }
+    let didPlace = false;
+    for (const t of trucks) {
+      const p = placeRoll(roll, t, fleet);
+      if (p) {
+        t.loadedRolls.push(p);
+        t.currentWeightKg += roll.weight;
+        didPlace = true;
+        break;
+      }
+    }
+    if (!didPlace) {
+      const t = {
+        truckNumber: trucks.length + 1,
+        fleet,
+        loadedRolls: [],
+        currentWeightKg: 0,
+        maxTonnageKg: fleet.max_tonnage_kg,
       };
-    }
-  }
-
-  // If AUTO, select optimal fleet based on weight and roll length
-  if (!targetFleet) {
-    // Sort valid fleets from smallest to largest tonnage
-    const sorted = [...validFleets].sort((a, b) => a.max_tonnage_kg - b.max_tonnage_kg);
-    // Find smallest single truck that can fit all by weight, or largest if multi-truck needed
-    targetFleet = sorted.find(f => f.max_tonnage_kg >= totalWeightKg) || sorted[sorted.length - 1];
-  }
-
-  // 2. Perform True 3D Multi-Tier Stacking Simulation
-  // Sort rolls: Longer rolls first (7m -> 4m -> 2m), then larger diameter, then heavier
-  // This guarantees heavy 7m rolls sit on the bottom tiers (Tier 1, Tier 2), and lighter 4m/2m rolls stack on top!
-  const remainingRolls = [...rolls].sort((a, b) => {
-    if (b.length !== a.length) return b.length - a.length;
-    if (b.diameter !== a.diameter) return b.diameter - a.diameter;
-    return b.weight - a.weight;
-  });
-
-  const trucks = [];
-  let truckIndex = 1;
-
-  const truckL = targetFleet.cargo_dimensions.max_length_m;
-  const truckW = targetFleet.cargo_dimensions.max_width_m;
-  const truckH = targetFleet.cargo_dimensions.max_height_m;
-
-  while (remainingRolls.length > 0) {
-    const currentTruck = {
-      truckNumber: truckIndex,
-      fleet: targetFleet,
-      loadedRolls: [],
-      tiers: {}, // { 1: [rolls], 2: [rolls], 3: [rolls], ... }
-      currentWeightKg: 0,
-      maxTonnageKg: targetFleet.max_tonnage_kg,
-      weightUtilizationPercent: 0,
-      volumeUtilizationPercent: 0
-    };
-
-    let unplacedInThisTruck = [];
-
-    // Stacking state per tier:
-    // For each tier (1, 2, 3... up to max tier possible for truck height):
-    // We track longitudinal lanes/bays.
-    // A bay on tier T is: { startX: 0, length: 7.0, maxCols: 3, rolls: [roll1, roll2, roll3] }
-    const tierBays = {}; // tier -> array of bays
-
-    for (let r = 0; r < remainingRolls.length; r++) {
-      const roll = remainingRolls[r];
-
-      // Check truck weight limit
-      if (currentTruck.currentWeightKg + roll.weight > targetFleet.max_tonnage_kg) {
-        unplacedInThisTruck.push(roll);
+      const p = placeRoll(roll, t, fleet);
+      if (!p) {
+        unplaced.push({
+          ...roll,
+          reason: "Tidak ditemukan penempatan yang valid",
+        });
         continue;
       }
-
-      // Max columns that fit side-by-side across width for this roll's diameter
-      const rollColsCapacity = Math.max(1, Math.floor(truckW / roll.diameter));
-      // Max tier height limit based on truck height and roll logistics rule
-      const maxAllowedTier = Math.min(roll.maxTier, Math.max(1, Math.floor(truckH / roll.diameter)));
-
-      let placed = false;
-
-      // Find lowest available tier (Tier 1, Tier 2, Tier 3...)
-      for (let tier = 1; tier <= maxAllowedTier; tier++) {
-        if (!tierBays[tier]) {
-          tierBays[tier] = [];
-        }
-
-        const baysOnTier = tierBays[tier];
-
-        // 1. Check if roll can fit in an existing bay on this tier with same roll length
-        for (const bay of baysOnTier) {
-          if (Math.abs(bay.length - roll.length) < 0.1 && bay.rolls.length < bay.maxCols) {
-            const col = bay.rolls.length + 1;
-            const placedRoll = {
-              ...roll,
-              tier: tier,
-              col: col,
-              maxColsOnTier: bay.maxCols,
-              startX: bay.startX,
-              endX: bay.startX + roll.length,
-              truckNumber: truckIndex
-            };
-            bay.rolls.push(placedRoll);
-            currentTruck.loadedRolls.push(placedRoll);
-            currentTruck.currentWeightKg += roll.weight;
-            placed = true;
-            break;
-          }
-        }
-
-        if (placed) break;
-
-        // 2. If no existing matching bay on this tier has space, check if we can start a new bay on this tier along the truck length!
-        const usedLengthOnTier = baysOnTier.reduce((sum, b) => sum + b.length, 0);
-        if (usedLengthOnTier + roll.length <= truckL + 0.05) {
-          const newBay = {
-            startX: Math.round(usedLengthOnTier * 100) / 100,
-            length: roll.length,
-            maxCols: rollColsCapacity,
-            rolls: []
-          };
-
-          const placedRoll = {
-            ...roll,
-            tier: tier,
-            col: 1,
-            maxColsOnTier: rollColsCapacity,
-            startX: newBay.startX,
-            endX: newBay.startX + roll.length,
-            truckNumber: truckIndex
-          };
-
-          newBay.rolls.push(placedRoll);
-          baysOnTier.push(newBay);
-          currentTruck.loadedRolls.push(placedRoll);
-          currentTruck.currentWeightKg += roll.weight;
-          placed = true;
-          break;
-        }
-      }
-
-      if (!placed) {
-        unplacedInThisTruck.push(roll);
-      }
+      t.loadedRolls.push(p);
+      t.currentWeightKg += roll.weight;
+      trucks.push(t);
     }
-
-    // Group loaded rolls by tier
-    const tiersMap = {};
-    currentTruck.loadedRolls.forEach(r => {
-      if (!tiersMap[r.tier]) tiersMap[r.tier] = [];
-      tiersMap[r.tier].push(r);
-    });
-    currentTruck.tiers = tiersMap;
-
-    // Calculate utilizations
-    currentTruck.weightUtilizationPercent = Math.round((currentTruck.currentWeightKg / targetFleet.max_tonnage_kg) * 1000) / 10;
-    
-    const truckVolumeM3 = truckL * truckW * truckH;
-    const cargoVolumeM3 = currentTruck.loadedRolls.reduce((sum, r) => {
-      const radius = r.diameter / 2;
-      return sum + (Math.PI * radius * radius * r.length);
-    }, 0);
-    currentTruck.volumeUtilizationPercent = Math.round((cargoVolumeM3 / truckVolumeM3) * 1000) / 10;
-
-    trucks.push(currentTruck);
-
-    // If no rolls were placed in this pass, break to avoid infinite loop
-    if (currentTruck.loadedRolls.length === 0) {
-      console.error("Packing error: Unable to fit roll into fresh truck", remainingRolls[0]);
-      break;
-    }
-
-    remainingRolls.length = 0;
-    remainingRolls.push(...unplacedInThisTruck);
-    truckIndex++;
-
-    if (truckIndex > 50) break; // Safety cutoff
   }
-
-  // Summary aggregation
-  const totalTrucksCount = trucks.length;
-  const skuBreakdown = {};
-  rolls.forEach(r => {
-    skuBreakdown[r.sku] = (skuBreakdown[r.sku] || 0) + 1;
-  });
-
+  for (const t of trucks) {
+    t.weightUtilizationPercent =
+      (t.currentWeightKg / fleet.max_tonnage_kg) * 100;
+    t.volumeUtilizationPercent =
+      (t.loadedRolls.reduce(
+        (s, r) => s + Math.PI * (r.diameter / 2) ** 2 * r.length,
+        0,
+      ) /
+        (fleet.cargo_dimensions.max_length_m *
+          fleet.cargo_dimensions.max_width_m *
+          fleet.cargo_dimensions.max_height_m)) *
+      100;
+    t.tiers = {};
+    for (const r of t.loadedRolls) (t.tiers[r.tier] ??= []).push(r);
+  }
   return {
-    success: true,
-    targetFleet,
-    totalTrucksCount,
+    fleet,
     trucks,
+    unplaced,
+    totalTrucksCount: trucks.length,
+    success: unplaced.length === 0,
+  };
+}
+export function optimizeCargoLoading(
+  selectedItems,
+  availableFleets,
+  preferredFleetId = "AUTO",
+  options = {},
+) {
+  const errors = [];
+  let count = 0;
+  if (!Array.isArray(selectedItems) || !selectedItems.length)
+    errors.push("Tambahkan material untuk menghitung muatan.");
+  for (const item of selectedItems || []) {
+    errors.push(...validateMaterial(item));
+    if (!Number.isInteger(item.quantity) || item.quantity < 1)
+      errors.push(`${item.sku}: jumlah harus bilangan bulat positif.`);
+    count += item.quantity;
+  }
+  if (count > 2000)
+    errors.push(
+      "Maksimal 2.000 roll per perhitungan. Pisahkan pengiriman menjadi beberapa rencana.",
+    );
+  if (!availableFleets?.length) errors.push("Database armada kosong.");
+  else errors.push(...availableFleets.flatMap(validateFleet));
+  if (
+    preferredFleetId &&
+    preferredFleetId !== "AUTO" &&
+    !availableFleets.some((f) => f.fleet_id === preferredFleetId)
+  )
+    errors.push("Armada pilihan tidak ditemukan.");
+  if (errors.length)
+    return {
+      success: false,
+      status: "invalid",
+      errors,
+      message: errors.join(" "),
+      trucks: [],
+      unplaced: [],
+      summary: null,
+      candidates: [],
+    };
+  const rolls = selectedItems.flatMap((item, row) =>
+    Array.from({ length: item.quantity }, (_, i) => ({
+      id: `${row}-${item.sku}-${i}`,
+      sku: item.sku,
+      category: item.category,
+      length: item.shipping_dimensions.cylinder_length_m,
+      diameter: item.shipping_dimensions.cylinder_diameter_m,
+      weight: item.weight_kg,
+      stackable: item.logistics_rules.stackable,
+      maxTier: item.logistics_rules.max_stack_tier,
+      maxStackLoadKg: item.logistics_rules.max_stack_load_kg,
+    })),
+  );
+  rolls.sort(
+    (a, b) =>
+      b.weight - a.weight || b.length - a.length || b.diameter - a.diameter,
+  );
+  const candidates = availableFleets.map((f) => {
+    const orders = [
+      rolls,
+      [...rolls].sort(
+        (a, b) =>
+          b.length - a.length || b.diameter - a.diameter || b.weight - a.weight,
+      ),
+      [...rolls].sort(
+        (a, b) =>
+          b.diameter - a.diameter || b.length - a.length || b.weight - a.weight,
+      ),
+    ];
+    const attempts = orders.map((order) => simulate(order, f));
+    attempts.sort(
+      (a, b) =>
+        a.unplaced.length - b.unplaced.length ||
+        a.totalTrucksCount - b.totalTrucksCount,
+    );
+    const r = attempts[0];
+    const quoted = options.quoteCandidate?.(f, r.totalTrucksCount);
+    return { ...r, estimatedCost: Number.isFinite(quoted) ? quoted : null };
+  });
+  const valid = candidates.filter((c) => c.success);
+  const allPriced =
+    valid.length > 0 && valid.every((c) => c.estimatedCost !== null);
+  valid.sort(
+    (a, b) =>
+      (allPriced ? a.estimatedCost - b.estimatedCost : 0) ||
+      a.totalTrucksCount - b.totalTrucksCount ||
+      a.fleet.max_tonnage_kg - b.fleet.max_tonnage_kg,
+  );
+  const chosen =
+    preferredFleetId && preferredFleetId !== "AUTO"
+      ? candidates.find((c) => c.fleet.fleet_id === preferredFleetId)
+      : valid[0] ||
+        candidates
+          .slice()
+          .sort((a, b) => a.unplaced.length - b.unplaced.length)[0];
+  const loaded = chosen.trucks.reduce((n, t) => n + t.loadedRolls.length, 0);
+  return {
+    ...chosen,
+    targetFleet: chosen.fleet,
+    status: chosen.success ? "complete" : "partial",
+    message: chosen.success
+      ? "Seluruh roll teralokasi dalam model perencanaan."
+      : `${chosen.unplaced.length} roll belum dapat dimuat.`,
+    candidates,
+    errors: [],
+    selectionBasis: allPriced
+      ? "Biaya terendah di antara kandidat satu tipe armada"
+      : "Jumlah perjalanan, lalu kapasitas nominal",
     summary: {
       totalRolls: rolls.length,
-      totalWeightKg,
-      maxRollLength,
-      skuBreakdown
-    }
+      loadedRolls: loaded,
+      unplacedRolls: chosen.unplaced.length,
+      totalWeightKg: rolls.reduce((s, r) => s + r.weight, 0),
+      totalVolumeM3: selectedItems.reduce(
+        (s, m) => s + rollVolume(m) * m.quantity,
+        0,
+      ),
+      maxRollLength: Math.max(...rolls.map((r) => r.length)),
+    },
   };
 }
