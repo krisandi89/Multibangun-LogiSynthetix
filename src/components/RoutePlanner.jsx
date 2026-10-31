@@ -32,11 +32,12 @@ function RouteMap({ point, route, onPick }) {
     );
     map.current = m;
     L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+      import.meta.env.VITE_MAP_TILE_URL ||
+        "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
       {
         maxZoom: 19,
         attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       },
     ).addTo(m);
     layers.current = L.layerGroup().addTo(m);
@@ -102,7 +103,7 @@ function RouteMap({ point, route, onPick }) {
     />
   );
 }
-export function RoutePlanner({ route, onRouteChange }) {
+export function RoutePlanner({ route, onRouteChange, active = true }) {
   const [input, setInput] = useState(route?.destination.address || ""),
     [point, setPoint] = useState(route?.destination || null),
     [results, setResults] = useState([]),
@@ -225,10 +226,10 @@ export function RoutePlanner({ route, onRouteChange }) {
           ))}
         </div>
       )}
-      <RouteMap point={point} route={route} onPick={choose} />
+      {active && <RouteMap point={point} route={route} onPick={choose} />}
       <div className="map-caption">
         <span>Klik peta untuk memilih pin, atau cari koordinat di atas.</span>
-        <span>OSM · CARTO · OSRM</span>
+        <span>OpenStreetMap · OSRM</span>
       </div>
       {point && (
         <div className="pin-confirm">

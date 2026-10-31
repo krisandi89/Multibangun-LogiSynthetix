@@ -637,6 +637,7 @@ export function App() {
               </div>
               <div hidden={step !== "route"}>
                 <RoutePlanner
+                  active={step === "route"}
                   key={routeKey}
                   route={route}
                   onRouteChange={updateRoute}
