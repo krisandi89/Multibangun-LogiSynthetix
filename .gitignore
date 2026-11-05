@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local credentials and hosting state
+.env*
+!.env.example
+.vercel/
+LogiSynthetix-v2-*/
+
